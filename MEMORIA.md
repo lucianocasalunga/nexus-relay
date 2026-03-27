@@ -51,6 +51,7 @@ Tres camadas: Seed Node (relay central) + Super Peers (clientes estaveis) + Casu
 
 **Fase:** 0 - COMPLETA | Proxima: Fase 1 - Signaling Server
 **Progresso:** Fase 0 concluida e validada por Barak
+**Plano Fase 1:** FASE1_PLANO_EXECUCAO.md (10 etapas, ~3h, pronto para executar)
 
 ---
 

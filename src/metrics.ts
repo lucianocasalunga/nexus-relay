@@ -33,7 +33,7 @@ export async function getMetrics(): Promise<Record<string, unknown>> {
 
   return {
     server: {
-      version: '0.3.0',
+      version: '1.0.0',
       uptime_seconds: Math.floor(process.uptime()),
       memory_mb: Math.round(process.memoryUsage().heapUsed / 1024 / 1024),
     },

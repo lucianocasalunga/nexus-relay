@@ -42,7 +42,7 @@ const NIP11_INFO = JSON.stringify({
   contact: 'admin@libernet.app',
   supported_nips: [1, 2, 4, 9, 11, 12, 15, 16, 20, 22, 28, 33, 40, 95],
   software: 'nexus-relay',
-  version: '0.3.0',
+  version: '1.0.0',
   limitation: {
     max_message_length: 131072,
     max_subscriptions: 1000,
@@ -141,7 +141,7 @@ export function startServer(): WebSocketServer {
   });
 
   httpServer.listen(config.nexusPort, () => {
-    log.info(`Nexus Relay v0.2.0 listening on port ${config.nexusPort} (HTTP + WebSocket)`);
+    log.info(`Nexus Relay v1.0.0 listening on port ${config.nexusPort} (HTTP + WebSocket)`);
   });
 
   return wss;

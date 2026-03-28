@@ -49,8 +49,8 @@ Tres camadas: Seed Node (relay central) + Super Peers (clientes estaveis) + Casu
 
 ## STATUS ATUAL
 
-**Fase:** 6 - COMPLETA | Proxima: Fase 7 - Testes e Lancamento
-**Progresso:** Fase 6 Integracao LiberMedia + Deploy producao (28/Mar/2026)
+**Fase:** 7 - COMPLETA | RELEASE v1.0.0
+**Progresso:** Todas as 7 fases concluidas em 28/Mar/2026 (1 sessao!)
 **Porta:** 8889 (8888 ocupada pelo relay-moderation-api)
 
 ---
@@ -278,6 +278,26 @@ Tres camadas: Seed Node (relay central) + Super Peers (clientes estaveis) + Casu
 
 ---
 
+### 2026-03-28 - Fase 7 COMPLETA: Testes e Release v1.0.0
+
+**Realizacoes:**
+- Teste de carga: 60 peers simultaneos, 300 eventos, tudo OK
+  - Connect 60 peers: 46ms, Register: 19ms, Requests: 6ms, Signals: 2ms
+- Teste de resiliencia: 12/12 passando
+  - Disconnect/reconnect, flapping (20 conexoes rapidas), cleanup, mensagens invalidas
+  - Cache grande (100 eventos) limpo no disconnect
+  - Peer sobrevive quando outro desconecta
+- Bump para v1.0.0: server, NIP-11, metrics, index
+- Rebuild e redeploy em producao
+
+**Testes totais: 97** (23 F2 + 25 F3 + 26 F4 + 11 carga + 12 resiliencia)
+
+**Arquivos criados:**
+- tests/test-load.ts — teste de carga 60 peers (NOVO)
+- tests/test-resilience.ts — teste de resiliencia 12 asserts (NOVO)
+
+---
+
 ## BUGS E SOLUCOES
 
-(Nenhum - Fases 1-6 limpas)
+(Nenhum - Fases 1-7 limpas)

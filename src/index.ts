@@ -7,7 +7,7 @@ import { startBroadcastListener, stopBroadcastListener } from './broadcast';
 const log = logger('nexus');
 
 async function main(): Promise<void> {
-  log.info('Nexus Relay v0.3.0 starting...');
+  log.info('Nexus Relay v1.0.0 starting...');
   log.info(`config: port=${config.nexusPort} strfry=${config.strfryHost}:${config.strfryPort} redis=${config.redisUrl}`);
 
   // 1. Connect Redis

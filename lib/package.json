@@ -1,0 +1,40 @@
+{
+  "name": "nostr-p2p",
+  "version": "0.1.0",
+  "description": "NIP-95 P2P extension for Nostr relays - WebRTC peer-to-peer event sharing",
+  "main": "dist/cjs/index.js",
+  "module": "dist/esm/index.js",
+  "types": "dist/esm/index.d.ts",
+  "exports": {
+    ".": {
+      "import": "./dist/esm/index.js",
+      "require": "./dist/cjs/index.js",
+      "types": "./dist/esm/index.d.ts"
+    }
+  },
+  "files": [
+    "dist",
+    "README.md"
+  ],
+  "scripts": {
+    "build:esm": "tsc -p tsconfig.esm.json",
+    "build:cjs": "tsc -p tsconfig.cjs.json",
+    "build": "npm run build:esm && npm run build:cjs",
+    "clean": "rm -rf dist",
+    "prepublishOnly": "npm run clean && npm run build"
+  },
+  "keywords": ["nostr", "p2p", "webrtc", "nip-95", "relay", "decentralized"],
+  "author": "LiberNet <admin@libernet.app>",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/lucianocasalunga/nexus-relay"
+  },
+  "peerDependencies": {
+    "nostr-tools": ">=2.0.0"
+  },
+  "devDependencies": {
+    "typescript": "^5.0.0",
+    "nostr-tools": "^2.23.3"
+  }
+}

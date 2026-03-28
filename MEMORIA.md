@@ -49,8 +49,8 @@ Tres camadas: Seed Node (relay central) + Super Peers (clientes estaveis) + Casu
 
 ## STATUS ATUAL
 
-**Fase:** 4 - COMPLETA | Proxima: Fase 5 - Biblioteca Cliente (nostr-p2p.js)
-**Progresso:** Fase 4 Cache e Super Peers implementado e testado (28/Mar/2026)
+**Fase:** 5 - COMPLETA | Proxima: Fase 6 - Integracao com LiberMedia
+**Progresso:** Fase 5 Biblioteca nostr-p2p.js criada e compilada (28/Mar/2026)
 **Porta:** 8889 (8888 ocupada pelo relay-moderation-api)
 
 ---
@@ -213,6 +213,39 @@ Tres camadas: Seed Node (relay central) + Super Peers (clientes estaveis) + Casu
 
 ---
 
+### 2026-03-28 - Fase 5 COMPLETA: Biblioteca nostr-p2p.js
+
+**Realizacoes:**
+- Biblioteca standalone em lib/ com API limpa e documentada
+- NexusClient class: connect, subscribe, publish, requestP2P, eventos
+- P2PManager: gerencia WebRTC automaticamente (initiator/responder)
+- EventCache: IndexedDB com TTL 24h, cleanup, announce automatico
+- NexusEventEmitter: sistema de eventos tipado
+- Build dual: ESM (dist/esm/) + CJS (dist/cjs/) com types/declarations
+- README completo com API docs, exemplos, tabelas de eventos/opcoes
+- CJS import testado e funcionando no Node.js
+- Compativel com nostr-tools
+- Pronto para npm publish
+
+**API publica:**
+- `new NexusClient({ url, bandwidth, storage, publicKey, p2p })`
+- `.connect()`, `.disconnect()`, `.subscribe()`, `.publish()`, `.requestP2P()`
+- `.on('relayEvent' | 'p2pEvent' | 'promoted' | 'reconnect' | ...)`
+- `.status`, `.id`, `.p2pStats`, `.eventCache`
+
+**Arquivos criados:**
+- lib/package.json — pacote npm nostr-p2p
+- lib/tsconfig.esm.json — config ESM
+- lib/tsconfig.cjs.json — config CJS
+- lib/src/index.ts — exports
+- lib/src/client.ts — NexusClient class principal
+- lib/src/p2p.ts — P2PManager (WebRTC)
+- lib/src/cache.ts — EventCache (IndexedDB)
+- lib/src/types.ts — tipos e NexusEventEmitter
+- lib/README.md — documentacao completa
+
+---
+
 ## BUGS E SOLUCOES
 
-(Nenhum - Fases 1, 2, 3 e 4 limpas)
+(Nenhum - Fases 1-5 limpas)

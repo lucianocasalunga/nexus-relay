@@ -33,6 +33,11 @@ export async function getPeer(peerId: string): Promise<Record<string, string> | 
   return Object.keys(data).length > 0 ? data : null;
 }
 
+export async function setPeerStatus(peerId: string, status: string): Promise<void> {
+  const key = `${PREFIX}peer:${peerId}`;
+  await client.hSet(key, 'status', status);
+}
+
 export async function removePeer(peerId: string): Promise<void> {
   await client.del(`${PREFIX}peer:${peerId}`);
   await client.sRem(`${PREFIX}peers:all`, peerId);

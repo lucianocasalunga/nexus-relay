@@ -49,8 +49,8 @@ Tres camadas: Seed Node (relay central) + Super Peers (clientes estaveis) + Casu
 
 ## STATUS ATUAL
 
-**Fase:** 1 - COMPLETA | Proxima: Fase 2 - WebRTC P2P
-**Progresso:** Fase 1 implementada e testada (28/Mar/2026)
+**Fase:** 3 - COMPLETA | Proxima: Fase 4 - Cache e Super Peers
+**Progresso:** Fase 3 Protocolo NIP-95 implementado e testado (28/Mar/2026)
 **Porta:** 8889 (8888 ocupada pelo relay-moderation-api)
 
 ---
@@ -116,6 +116,78 @@ Tres camadas: Seed Node (relay central) + Super Peers (clientes estaveis) + Casu
 
 ---
 
+### 2026-03-28 - Fase 2 COMPLETA: WebRTC P2P PoC
+
+**Realizacoes:**
+- Signaling expandido: PEER_SIGNAL, PEER_REQUEST, PEER_OFFER, PEER_CACHE_HAVE
+- Cache tracker in-memory: rastreia quais peers tem quais eventos (bidirecional)
+- Relay de sinais ICE/SDP entre peers via Nexus (bidirecional, offer+answer+candidates)
+- HTTP server integrado ao WebSocket para servir pagina de teste
+- Pagina HTML de teste com simple-peer (WebRTC) + nostr-tools (Schnorr)
+- Tunnel Cloudflare configurado: nexus.libernet.app → localhost:8889
+- Teste automatizado: 23/23 testes passando (signaling flow completo)
+- Teste real no browser: 2 abas trocando evento Nostr via WebRTC P2P
+
+**Resultados do PoC:**
+- Evento transferido via P2P: SIM
+- Assinatura Schnorr validada: SIM
+- Tempo de signaling (ICE/SDP): 323ms
+- Tempo de transfer P2P: 4ms
+- Evento ID: ad8ded228f4f83569960e42a1ff36ef0c2bb51df81507e53cb30a56e643f2391
+
+**Arquivos criados/modificados:**
+- src/signaling/messages.ts — novos tipos de mensagem
+- src/signaling/handler.ts — handlers para SIGNAL, REQUEST, CACHE_HAVE
+- src/peers/cache-tracker.ts — tracker de cache de eventos por peer (NOVO)
+- src/peers/manager.ts — cleanup do cache-tracker no disconnect
+- src/server.ts — HTTP server integrado para servir pagina de teste
+- public/test.html — pagina de teste WebRTC P2P (NOVO)
+- tests/test-signaling-flow.ts — teste automatizado 23 asserts (NOVO)
+
+**Testes realizados:**
+1. HTTP serve pagina de teste (200) via tunnel
+2. WebSocket proxy para strfry funciona via tunnel
+3. PEER_REGISTER funciona via tunnel
+4. PEER_CACHE_HAVE registra eventos no tracker
+5. PEER_REQUEST → PEER_OFFER com peers corretos (exclui requester)
+6. PEER_SIGNAL relay bidirecional (offer → A, answer → B, candidates)
+7. Evento inexistente → fallback strfry
+8. Heartbeat ao lado de P2P
+9. Proxy strfry funciona ao lado de P2P (modo hibrido)
+10. WebRTC P2P real no browser: 2 abas, evento transferido, Schnorr validado
+
+---
+
+### 2026-03-28 - Fase 3 COMPLETA: Protocolo NIP-95 no Relay
+
+**Realizacoes:**
+- Classificador de peers: reputacao 0-100, promocao/democao automatica no heartbeat
+- PEER_STATS: peers reportam eventos servidos, ganham reputacao (+1 por report, +2 a cada 5 eventos)
+- PEER_PROMOTED/PEER_DEMOTED: mensagens de notificacao de mudanca de status
+- Smart Routing: REQ de peers registrados recebe PEER_OFFER aditivo (P2P + strfry simultaneo)
+- Broadcast: subscription interna no strfry, notifica Super Peers de novos eventos (PEER_EVENT_NEW)
+- NIP-11: endpoint retorna relay info com NIP-95, p2p_enabled, versao 0.3.0
+- Tunnel Cloudflare: nexus.libernet.app configurado e testado (HTTP + WS + NIP-11)
+- Testes: 48/48 passando (23 Fase 2 + 25 Fase 3), zero regressao
+
+**Criterios Super Peer:**
+- Online >30min, bandwidth >5Mbps, storage >100MB, reputacao >=50, cache >=1 evento
+- Democao: reputacao <30
+
+**Arquivos criados/modificados:**
+- src/peers/classifier.ts — classificador com reputacao e promocao/democao (NOVO)
+- src/broadcast.ts — subscription strfry + broadcast para Super Peers (NOVO)
+- src/router.ts — smart routing: REQ com P2P first para peers registrados
+- src/signaling/handler.ts — PEER_STATS, classificacao no heartbeat
+- src/signaling/messages.ts — PEER_PROMOTED, PEER_DEMOTED, PEER_STATS, PEER_EVENT_NEW
+- src/redis/client.ts — setPeerStatus()
+- src/peers/manager.ts — initReputation, cleanupPeerClassifier
+- src/server.ts — NIP-11 endpoint (Accept: application/nostr+json)
+- src/index.ts — v0.3.0, broadcast listener integrado
+- tests/test-fase3.ts — 25 asserts (NOVO)
+
+---
+
 ## BUGS E SOLUCOES
 
-(Nenhum - Fase 1 limpa)
+(Nenhum - Fases 1, 2 e 3 limpas)

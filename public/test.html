@@ -1,0 +1,403 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Nexus Relay - Fase 2 PoC WebRTC</title>
+  <style>
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body { font-family: monospace; background: #0d1117; color: #c9d1d9; padding: 20px; }
+    h1 { color: #58a6ff; margin-bottom: 4px; font-size: 1.4em; }
+    h2 { color: #8b949e; font-size: 1em; margin-bottom: 20px; }
+    .panels { display: flex; gap: 20px; flex-wrap: wrap; }
+    .panel {
+      flex: 1; min-width: 380px;
+      border: 1px solid #30363d; border-radius: 8px;
+      padding: 16px; background: #161b22;
+    }
+    .panel h3 { color: #f0883e; margin-bottom: 12px; }
+    .panel.peer-b h3 { color: #3fb950; }
+    button {
+      background: #21262d; color: #c9d1d9; border: 1px solid #30363d;
+      padding: 8px 16px; border-radius: 6px; cursor: pointer; margin: 4px;
+      font-family: monospace; font-size: 0.9em;
+    }
+    button:hover { background: #30363d; }
+    button:disabled { opacity: 0.4; cursor: not-allowed; }
+    button.primary { background: #1f6feb; border-color: #1f6feb; color: #fff; }
+    button.primary:hover { background: #388bfd; }
+    button.success { background: #238636; border-color: #238636; color: #fff; }
+    button.success:hover { background: #2ea043; }
+    .log {
+      background: #0d1117; border: 1px solid #30363d; border-radius: 6px;
+      padding: 10px; margin-top: 12px; height: 260px; overflow-y: auto;
+      font-size: 0.8em; line-height: 1.5;
+    }
+    .log .info { color: #58a6ff; }
+    .log .success { color: #3fb950; }
+    .log .error { color: #f85149; }
+    .log .signal { color: #d2a8ff; }
+    .log .p2p { color: #f0883e; font-weight: bold; }
+    .status {
+      display: inline-block; padding: 2px 8px; border-radius: 12px;
+      font-size: 0.8em; margin-left: 8px;
+    }
+    .status.disconnected { background: #da3633; color: #fff; }
+    .status.connected { background: #1f6feb; color: #fff; }
+    .status.registered { background: #238636; color: #fff; }
+    .status.p2p { background: #f0883e; color: #000; }
+    #results {
+      margin-top: 20px; border: 1px solid #30363d; border-radius: 8px;
+      padding: 16px; background: #161b22; display: none;
+    }
+    #results h3 { color: #d2a8ff; margin-bottom: 8px; }
+    #results table { width: 100%; border-collapse: collapse; }
+    #results td, #results th {
+      padding: 6px 12px; text-align: left; border-bottom: 1px solid #30363d;
+    }
+    #results th { color: #8b949e; }
+    .event-box {
+      background: #0d1117; border: 1px solid #30363d; border-radius: 6px;
+      padding: 8px; margin-top: 8px; font-size: 0.75em; word-break: break-all;
+      max-height: 80px; overflow-y: auto;
+    }
+  </style>
+</head>
+<body>
+  <h1>Nexus Relay - Fase 2 PoC</h1>
+  <h2>WebRTC P2P: dois peers trocando um evento Nostr</h2>
+
+  <div class="panels">
+    <!-- PEER A -->
+    <div class="panel">
+      <h3>Peer A (Super Peer) <span id="statusA" class="status disconnected">desconectado</span></h3>
+      <div>
+        <button id="btnConnectA" class="primary" onclick="connectPeer('A')">1. Conectar</button>
+        <button id="btnRegisterA" onclick="registerPeer('A')" disabled>2. Registrar</button>
+        <button id="btnCacheA" onclick="cacheEvent('A')" disabled>3. Cachear Evento</button>
+      </div>
+      <div class="event-box" id="eventA">nenhum evento cacheado</div>
+      <div class="log" id="logA"></div>
+    </div>
+
+    <!-- PEER B -->
+    <div class="panel peer-b">
+      <h3>Peer B (Requester) <span id="statusB" class="status disconnected">desconectado</span></h3>
+      <div>
+        <button id="btnConnectB" class="primary" onclick="connectPeer('B')">1. Conectar</button>
+        <button id="btnRegisterB" onclick="registerPeer('B')" disabled>2. Registrar</button>
+        <button id="btnRequestB" class="success" onclick="requestEvent('B')" disabled>4. Pedir Evento P2P</button>
+      </div>
+      <div class="event-box" id="eventB">nenhum evento recebido</div>
+      <div class="log" id="logB"></div>
+    </div>
+  </div>
+
+  <!-- RESULTS -->
+  <div id="results">
+    <h3>Resultado do PoC</h3>
+    <table>
+      <tr><th>Metrica</th><th>Valor</th></tr>
+      <tr><td>Evento transferido via P2P</td><td id="resTransfer">-</td></tr>
+      <tr><td>Assinatura Schnorr valida</td><td id="resSchnorr">-</td></tr>
+      <tr><td>Tempo de signaling (ICE/SDP)</td><td id="resSignaling">-</td></tr>
+      <tr><td>Tempo de transfer P2P</td><td id="resP2P">-</td></tr>
+      <tr><td>Evento ID recebido</td><td id="resEventId">-</td></tr>
+    </table>
+  </div>
+
+  <!-- simple-peer from CDN -->
+  <script src="https://unpkg.com/simple-peer@9.11.1/simplepeer.min.js"></script>
+  <!-- nostr-tools: use bundled version for browser -->
+  <script type="module">
+    import { generateSecretKey, getPublicKey, finalizeEvent, verifyEvent } from 'https://esm.sh/nostr-tools@2.23.3';
+
+    // --- State ---
+    const state = {
+      A: { ws: null, peerId: null, peer: null, cachedEvent: null },
+      B: { ws: null, peerId: null, peer: null, receivedEvent: null },
+    };
+
+    // Timing
+    let signalingStart = 0;
+    let p2pStart = 0;
+
+    // Generate keypair for test event
+    const sk = generateSecretKey();
+    const pk = getPublicKey(sk);
+
+    // --- Helpers ---
+    function logMsg(side, msg, cls = 'info') {
+      const el = document.getElementById(`log${side}`);
+      const ts = new Date().toISOString().slice(11, 23);
+      el.innerHTML += `<div class="${cls}">[${ts}] ${msg}</div>`;
+      el.scrollTop = el.scrollHeight;
+    }
+
+    function setStatus(side, status, label) {
+      const el = document.getElementById(`status${side}`);
+      el.className = `status ${status}`;
+      el.textContent = label;
+    }
+
+    function sendMsg(side, msg) {
+      const ws = state[side].ws;
+      if (ws && ws.readyState === 1) {
+        ws.send(JSON.stringify(msg));
+      }
+    }
+
+    // --- WebSocket Connection ---
+    window.connectPeer = function(side) {
+      const protocol = location.protocol === 'https:' ? 'wss:' : 'ws:';
+      const ws = new WebSocket(`${protocol}//${location.host}`);
+
+      ws.onopen = () => {
+        state[side].ws = ws;
+        setStatus(side, 'connected', 'conectado');
+        logMsg(side, 'WebSocket conectado ao Nexus', 'success');
+        document.getElementById(`btnRegister${side}`).disabled = false;
+        document.getElementById(`btnConnect${side}`).disabled = true;
+      };
+
+      ws.onmessage = (e) => {
+        const msg = JSON.parse(e.data);
+        handleMessage(side, msg);
+      };
+
+      ws.onclose = () => {
+        setStatus(side, 'disconnected', 'desconectado');
+        logMsg(side, 'WebSocket desconectado', 'error');
+      };
+    };
+
+    // --- Register as Peer ---
+    window.registerPeer = function(side) {
+      sendMsg(side, ['PEER_REGISTER', { bandwidth: 10, storage: 500, publicKey: pk }]);
+      logMsg(side, 'Enviando PEER_REGISTER...');
+    };
+
+    // --- Cache Event (Peer A) ---
+    window.cacheEvent = function(side) {
+      // Create a real Nostr event (kind 1, text note)
+      const event = finalizeEvent({
+        kind: 1,
+        created_at: Math.floor(Date.now() / 1000),
+        tags: [],
+        content: `Nexus P2P PoC - evento de teste via WebRTC! Timestamp: ${Date.now()}`,
+      }, sk);
+
+      state[side].cachedEvent = event;
+
+      // Tell Nexus we have this event
+      sendMsg(side, ['PEER_CACHE_HAVE', { event_ids: [event.id] }]);
+
+      document.getElementById(`event${side}`).textContent = JSON.stringify(event, null, 2);
+      logMsg(side, `Evento cacheado: ${event.id.slice(0, 16)}...`, 'success');
+      logMsg(side, `Assinatura: ${event.sig.slice(0, 24)}...`);
+
+      // Enable request button on B
+      document.getElementById('btnRequestB').disabled = false;
+    };
+
+    // --- Request Event P2P (Peer B) ---
+    window.requestEvent = function(side) {
+      const eventId = state.A.cachedEvent?.id;
+      if (!eventId) {
+        logMsg(side, 'Peer A ainda nao cacheou evento!', 'error');
+        return;
+      }
+
+      logMsg(side, `Pedindo evento ${eventId.slice(0, 16)}... via PEER_REQUEST`);
+      sendMsg(side, ['PEER_REQUEST', { event_ids: [eventId] }]);
+    };
+
+    // --- Handle Messages from Nexus ---
+    function handleMessage(side, msg) {
+      const type = msg[0] || (typeof msg === 'object' ? msg[0] : '');
+
+      // Handle array format [TYPE, payload]
+      if (Array.isArray(msg)) {
+        const [msgType, payload] = msg;
+
+        switch (msgType) {
+          case 'PEER_REGISTERED':
+            state[side].peerId = payload.peer_id;
+            setStatus(side, 'registered', `peer: ${payload.peer_id.slice(0, 8)}`);
+            logMsg(side, `Registrado! ID: ${payload.peer_id.slice(0, 12)}...`, 'success');
+            if (side === 'A') document.getElementById('btnCacheA').disabled = false;
+            break;
+
+          case 'PEER_HEARTBEAT_ACK':
+            logMsg(side, 'Heartbeat ACK');
+            break;
+
+          case 'PEER_OFFER':
+            handleOffer(side, payload);
+            break;
+
+          case 'PEER_SIGNAL':
+            handleSignalRelay(side, payload);
+            break;
+
+          case 'PEER_ERROR':
+            logMsg(side, `Erro: ${payload.message}`, 'error');
+            break;
+
+          default:
+            // Nostr relay messages (EVENT, EOSE, etc) from proxy
+            logMsg(side, `Relay: ${msgType}`);
+        }
+      }
+    }
+
+    // --- Handle PEER_OFFER (Peer B receives list of peers with events) ---
+    function handleOffer(side, payload) {
+      const offers = payload.offers;
+      const eventIds = Object.keys(offers);
+
+      if (eventIds.length === 0) {
+        logMsg(side, 'Nenhum peer tem o evento - fallback para strfry', 'error');
+        return;
+      }
+
+      for (const eventId of eventIds) {
+        const peerIds = offers[eventId];
+        logMsg(side, `PEER_OFFER: evento ${eventId.slice(0, 16)}... disponivel em ${peerIds.length} peer(s)`, 'info');
+
+        // Connect to first available peer via WebRTC
+        const targetPeerId = peerIds[0];
+        logMsg(side, `Iniciando WebRTC com peer ${targetPeerId.slice(0, 8)}...`, 'signal');
+        signalingStart = performance.now();
+        initiateWebRTC(side, targetPeerId, eventId);
+      }
+    }
+
+    // --- Initiate WebRTC connection (Peer B is initiator) ---
+    function initiateWebRTC(side, targetPeerId, eventId) {
+      const peer = new SimplePeer({ initiator: true, trickle: true });
+      state[side].peer = peer;
+      state[side]._targetPeer = targetPeerId;
+      state[side]._requestedEventId = eventId;
+
+      peer.on('signal', (signalData) => {
+        logMsg(side, `Signal gerado (${signalData.type || 'candidate'}), enviando via Nexus...`, 'signal');
+        sendMsg(side, ['PEER_SIGNAL', { target_peer: targetPeerId, signal_data: signalData }]);
+      });
+
+      peer.on('connect', () => {
+        const sigTime = performance.now() - signalingStart;
+        logMsg(side, `WebRTC CONECTADO! (signaling: ${sigTime.toFixed(0)}ms)`, 'p2p');
+        setStatus(side, 'p2p', 'P2P conectado');
+        document.getElementById('resSignaling').textContent = `${sigTime.toFixed(0)}ms`;
+
+        // Request the event via data channel
+        p2pStart = performance.now();
+        peer.send(JSON.stringify({ type: 'P2P_REQUEST', event_id: eventId }));
+        logMsg(side, `P2P_REQUEST enviado para evento ${eventId.slice(0, 16)}...`, 'p2p');
+      });
+
+      peer.on('data', (data) => {
+        const p2pTime = performance.now() - p2pStart;
+        const msg = JSON.parse(data.toString());
+
+        if (msg.type === 'P2P_EVENTS') {
+          const event = msg.event;
+          state[side].receivedEvent = event;
+
+          logMsg(side, `P2P_EVENTS recebido! (${p2pTime.toFixed(0)}ms)`, 'p2p');
+          logMsg(side, `Evento ID: ${event.id.slice(0, 16)}...`, 'success');
+          logMsg(side, `Conteudo: ${event.content.slice(0, 60)}...`);
+
+          // Validate Schnorr signature
+          const valid = verifyEvent(event);
+          if (valid) {
+            logMsg(side, 'Assinatura Schnorr VALIDA!', 'success');
+          } else {
+            logMsg(side, 'Assinatura Schnorr INVALIDA!', 'error');
+          }
+
+          document.getElementById(`event${side}`).textContent = JSON.stringify(event, null, 2);
+
+          // Show results
+          showResults(event, valid, p2pTime);
+        }
+      });
+
+      peer.on('error', (err) => {
+        logMsg(side, `WebRTC erro: ${err.message}`, 'error');
+      });
+
+      peer.on('close', () => {
+        logMsg(side, 'WebRTC desconectado');
+      });
+    }
+
+    // --- Handle relayed signal (ICE/SDP from another peer via Nexus) ---
+    function handleSignalRelay(side, payload) {
+      const { from_peer, signal_data } = payload;
+      logMsg(side, `Signal recebido de ${from_peer.slice(0, 8)}... (${signal_data.type || 'candidate'})`, 'signal');
+
+      if (state[side].peer) {
+        // Already have a peer connection - just feed the signal
+        state[side].peer.signal(signal_data);
+      } else {
+        // Create a new peer connection as responder (Peer A)
+        const peer = new SimplePeer({ initiator: false, trickle: true });
+        state[side].peer = peer;
+
+        peer.on('signal', (sd) => {
+          logMsg(side, `Signal gerado (${sd.type || 'candidate'}), enviando via Nexus...`, 'signal');
+          sendMsg(side, ['PEER_SIGNAL', { target_peer: from_peer, signal_data: sd }]);
+        });
+
+        peer.on('connect', () => {
+          logMsg(side, 'WebRTC CONECTADO!', 'p2p');
+          setStatus(side, 'p2p', 'P2P conectado');
+        });
+
+        peer.on('data', (data) => {
+          const msg = JSON.parse(data.toString());
+
+          if (msg.type === 'P2P_REQUEST') {
+            logMsg(side, `P2P_REQUEST recebido para ${msg.event_id.slice(0, 16)}...`, 'p2p');
+
+            // Send the cached event
+            const event = state[side].cachedEvent;
+            if (event && event.id === msg.event_id) {
+              peer.send(JSON.stringify({ type: 'P2P_EVENTS', event }));
+              logMsg(side, 'Evento enviado via P2P!', 'success');
+            } else {
+              logMsg(side, 'Evento nao encontrado no cache!', 'error');
+            }
+          }
+        });
+
+        peer.on('error', (err) => {
+          logMsg(side, `WebRTC erro: ${err.message}`, 'error');
+        });
+
+        peer.on('close', () => {
+          logMsg(side, 'WebRTC desconectado');
+        });
+
+        // Feed the initial signal
+        peer.signal(signal_data);
+      }
+    }
+
+    // --- Show Results ---
+    function showResults(event, valid, p2pTime) {
+      const resultsEl = document.getElementById('results');
+      resultsEl.style.display = 'block';
+
+      document.getElementById('resTransfer').innerHTML = '<span style="color:#3fb950">SIM</span>';
+      document.getElementById('resSchnorr').innerHTML = valid
+        ? '<span style="color:#3fb950">VALIDA</span>'
+        : '<span style="color:#f85149">INVALIDA</span>';
+      document.getElementById('resP2P').textContent = `${p2pTime.toFixed(0)}ms`;
+      document.getElementById('resEventId').textContent = event.id;
+    }
+  </script>
+</body>
+</html>

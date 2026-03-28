@@ -1,5 +1,7 @@
 import { setPeer, removePeer, refreshPeerTtl, addToSet, removeFromSet } from '../redis/client';
 import { closeUpstream } from '../proxy';
+import { removePeerFromCache } from './cache-tracker';
+import { initReputation, cleanupPeerClassifier } from './classifier';
 import { logger } from '../utils/logger';
 import { PeerCapabilities } from './types';
 
@@ -29,6 +31,7 @@ export async function registerPeer(
   await addToSet('peers:all', clientId);
   await addToSet('peers:casual', clientId);
   registeredPeers.add(clientId);
+  initReputation(clientId);
 
   log.info(`registered peer ${clientId} (bw: ${capabilities.bandwidth ?? '?'}Mbps, storage: ${capabilities.storage ?? '?'}MB)`);
 }
@@ -52,6 +55,8 @@ export async function handleDisconnect(clientId: string): Promise<void> {
   if (!registeredPeers.has(clientId)) return;
 
   await removePeer(clientId);
+  removePeerFromCache(clientId);
+  cleanupPeerClassifier(clientId);
   registeredPeers.delete(clientId);
   log.info(`unregistered peer ${clientId}`);
 }

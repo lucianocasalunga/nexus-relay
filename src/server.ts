@@ -40,6 +40,7 @@ const NIP11_INFO = JSON.stringify({
   description: 'Hybrid P2P Nostr Relay - NIP-95',
   pubkey: '',
   contact: 'admin@libernet.app',
+  icon: 'https://media.libernet.app/343e049cd27aaf9ce2b31d61637cd00bee7e326b029403e9edb386097f95788e.png',
   supported_nips: [1, 2, 4, 9, 11, 12, 15, 16, 20, 22, 28, 33, 40, 95],
   software: 'nexus-relay',
   version: '1.0.0',
@@ -120,6 +121,17 @@ export function startServer(): WebSocketServer {
 
     log.info(`connected: ${id} from ${ip} (total: ${clients.size})`);
 
+    // Keep-alive ping every 30s (prevents Cloudflare Tunnel from closing idle WS)
+    const pingInterval = setInterval(() => {
+      if (ws.readyState === ws.OPEN) {
+        ws.ping();
+      }
+    }, 30000);
+
+    ws.on('pong', () => {
+      // Client is alive — nothing to do, the ping/pong itself keeps the connection active
+    });
+
     ws.on('message', (raw: Buffer) => {
       try {
         const msg = JSON.parse(raw.toString());
@@ -130,12 +142,14 @@ export function startServer(): WebSocketServer {
     });
 
     ws.on('close', () => {
+      clearInterval(pingInterval);
       clients.delete(id);
       handleDisconnect(id).catch(() => {});
       log.info(`disconnected: ${id} (total: ${clients.size})`);
     });
 
     ws.on('error', (err) => {
+      clearInterval(pingInterval);
       log.error(`ws error ${id}`, err.message);
     });
   });

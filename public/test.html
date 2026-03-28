@@ -4,6 +4,7 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>Nexus Relay - Fase 2 PoC WebRTC</title>
+  <link rel="icon" href="/favicon.ico" type="image/x-icon">
   <style>
     * { box-sizing: border-box; margin: 0; padding: 0; }
     body { font-family: monospace; background: #0d1117; color: #c9d1d9; padding: 20px; }
@@ -16,7 +17,7 @@
       padding: 16px; background: #161b22;
     }
     .panel h3 { color: #f0883e; margin-bottom: 12px; }
-    .panel.peer-b h3 { color: #3fb950; }
+    .panel.peer-b h3 { color: #58a6ff; }
     button {
       background: #21262d; color: #c9d1d9; border: 1px solid #30363d;
       padding: 8px 16px; border-radius: 6px; cursor: pointer; margin: 4px;
@@ -45,7 +46,7 @@
     .status.disconnected { background: #da3633; color: #fff; }
     .status.connected { background: #1f6feb; color: #fff; }
     .status.registered { background: #238636; color: #fff; }
-    .status.p2p { background: #f0883e; color: #000; }
+    .status.p2p { background: #238636; color: #fff; }
     #results {
       margin-top: 20px; border: 1px solid #30363d; border-radius: 8px;
       padding: 16px; background: #161b22; display: none;
@@ -65,7 +66,7 @@
 </head>
 <body>
   <div style="display:flex;align-items:center;gap:12px;margin-bottom:8px">
-    <img src="/logo.png" alt="Nexus" style="width:40px;height:40px;border-radius:8px">
+    <img src="/logo.png" alt="Nexus" style="width:40px;height:40px;border-radius:50%;object-fit:cover">
     <div><h1 style="margin:0">Nexus Relay - Fase 2 PoC</h1>
     <h2 style="margin:0">WebRTC P2P: dois peers trocando um evento Nostr</h2></div>
   </div>
@@ -89,7 +90,7 @@
       <div>
         <button id="btnConnectB" class="primary" onclick="connectPeer('B')">1. Conectar</button>
         <button id="btnRegisterB" onclick="registerPeer('B')" disabled>2. Registrar</button>
-        <button id="btnRequestB" class="success" onclick="requestEvent('B')" disabled>4. Pedir Evento P2P</button>
+        <button id="btnRequestB" class="success" onclick="requestEvent('B')" disabled>3. Pedir Evento P2P</button>
       </div>
       <div class="event-box" id="eventB">nenhum evento recebido</div>
       <div class="log" id="logB"></div>
@@ -109,8 +110,8 @@
     </table>
   </div>
 
-  <!-- simple-peer from CDN -->
-  <script src="https://unpkg.com/simple-peer@9.11.1/simplepeer.min.js"></script>
+  <!-- simple-peer local -->
+  <script src="/simplepeer.min.js"></script>
   <!-- nostr-tools: use bundled version for browser -->
   <script type="module">
     import { generateSecretKey, getPublicKey, finalizeEvent, verifyEvent } from 'https://esm.sh/nostr-tools@2.23.3';

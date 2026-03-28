@@ -30,7 +30,7 @@
 </head>
 <body>
   <div style="display:flex;align-items:center;gap:12px;margin-bottom:8px">
-    <img src="/logo.png" alt="Nexus" style="width:40px;height:40px;border-radius:8px">
+    <img src="/logo.png" alt="Nexus" style="width:40px;height:40px;border-radius:50%;object-fit:cover">
     <div><h1 style="margin:0">Nexus P2P Client</h1>
     <h2 style="margin:0">NIP-95 - Cache IndexedDB + WebRTC</h2></div>
   </div>
@@ -64,7 +64,7 @@
     <div class="log" id="logEl"></div>
   </div>
 
-  <script src="https://unpkg.com/simple-peer@9.11.1/simplepeer.min.js"></script>
+  <script src="/simplepeer.min.js"></script>
   <script type="module">
     import { verifyEvent } from 'https://esm.sh/nostr-tools@2.23.3';
 

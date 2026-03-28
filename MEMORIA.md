@@ -49,8 +49,8 @@ Tres camadas: Seed Node (relay central) + Super Peers (clientes estaveis) + Casu
 
 ## STATUS ATUAL
 
-**Fase:** 5 - COMPLETA | Proxima: Fase 6 - Integracao com LiberMedia
-**Progresso:** Fase 5 Biblioteca nostr-p2p.js criada e compilada (28/Mar/2026)
+**Fase:** 6 - COMPLETA | Proxima: Fase 7 - Testes e Lancamento
+**Progresso:** Fase 6 Integracao LiberMedia + Deploy producao (28/Mar/2026)
 **Porta:** 8889 (8888 ocupada pelo relay-moderation-api)
 
 ---
@@ -246,6 +246,38 @@ Tres camadas: Seed Node (relay central) + Super Peers (clientes estaveis) + Casu
 
 ---
 
+### 2026-03-28 - Fase 6 COMPLETA: Integracao LiberMedia + Deploy
+
+**Realizacoes:**
+- nexus.libernet.app adicionado como relay no LiberMedia v2 (feed-v2.js)
+- Modulo nexus-p2p.js criado: integra P2P transparente no feed existente
+  - Auto-registra como peer, cacheia eventos em IndexedDB
+  - Serve eventos via WebRTC, injeta P2P events no pipeline do feed
+  - Badge flutuante (canto inferior direito): mostra status P2P
+  - Toggle on/off com persistencia em localStorage
+  - Carrega SimplePeer automaticamente via CDN
+  - Intercepta handleRelayMessage para cachear eventos do Nexus
+- Script incluido no template feed.html
+- Nexus Relay deployado como servico systemd (nexus-relay.service)
+  - Compilado para JS (dist/), roda com Node.js direto
+  - Auto-restart on failure, enabled on boot
+  - Rodando em producao na porta 8889
+- Tunnel Cloudflare configurado e testado (HTTP, WS, NIP-11, /stats)
+- LiberMedia v2 reiniciado com integracao P2P ativa
+
+**Arquivos criados/modificados:**
+- /mnt/projetos/libermedia-v2/static/js/nexus-p2p.js — modulo integracao P2P (NOVO)
+- /mnt/projetos/libermedia-v2/static/js/feed-v2.js — nexus relay adicionado
+- /mnt/projetos/libermedia-v2/templates/feed.html — script nexus-p2p incluido
+- /etc/systemd/system/nexus-relay.service — servico systemd (NOVO)
+
+**Deploy:**
+- Nexus: systemd service, porta 8889, auto-restart
+- Tunnel: nexus.libernet.app → localhost:8889 (Cloudflare Zero Trust)
+- LiberMedia: feed.html carrega nexus-p2p.js, conecta ao Nexus como relay
+
+---
+
 ## BUGS E SOLUCOES
 
-(Nenhum - Fases 1-5 limpas)
+(Nenhum - Fases 1-6 limpas)

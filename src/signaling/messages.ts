@@ -16,3 +16,4 @@ export const MSG_PEER_PROMOTED = 'PEER_PROMOTED';   // promoted to Super Peer
 export const MSG_PEER_DEMOTED = 'PEER_DEMOTED';     // demoted to Casual
 export const MSG_PEER_STATS_OK = 'PEER_STATS_OK';   // stats received
 export const MSG_PEER_EVENT_NEW = 'PEER_EVENT_NEW'; // new event to cache (broadcast)
+export const MSG_PEER_RECONNECT = 'PEER_RECONNECT'; // super peer disconnected, reconnect via new peer

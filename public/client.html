@@ -1,0 +1,424 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Nexus Relay - Cliente P2P</title>
+  <style>
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body { font-family: monospace; background: #0d1117; color: #c9d1d9; padding: 20px; max-width: 800px; margin: 0 auto; }
+    h1 { color: #58a6ff; margin-bottom: 4px; font-size: 1.3em; }
+    h2 { color: #8b949e; font-size: 0.85em; margin-bottom: 16px; }
+    .card { border: 1px solid #30363d; border-radius: 8px; padding: 14px; background: #161b22; margin-bottom: 12px; }
+    .card h3 { color: #f0883e; margin-bottom: 8px; font-size: 0.95em; }
+    .status-bar { display: flex; gap: 12px; flex-wrap: wrap; margin-bottom: 12px; }
+    .badge { padding: 3px 10px; border-radius: 12px; font-size: 0.75em; }
+    .badge.off { background: #da3633; color: #fff; }
+    .badge.on { background: #238636; color: #fff; }
+    .badge.super { background: #f0883e; color: #000; }
+    .badge.p2p { background: #d2a8ff; color: #000; }
+    button { background: #21262d; color: #c9d1d9; border: 1px solid #30363d; padding: 6px 14px; border-radius: 6px; cursor: pointer; font-family: monospace; font-size: 0.85em; margin: 3px; }
+    button:hover { background: #30363d; }
+    button:disabled { opacity: 0.4; cursor: not-allowed; }
+    button.primary { background: #1f6feb; border-color: #1f6feb; color: #fff; }
+    .log { background: #0d1117; border: 1px solid #30363d; border-radius: 6px; padding: 8px; margin-top: 8px; height: 200px; overflow-y: auto; font-size: 0.75em; line-height: 1.5; }
+    .log .info { color: #58a6ff; } .log .ok { color: #3fb950; } .log .err { color: #f85149; }
+    .log .p2p { color: #f0883e; font-weight: bold; } .log .sig { color: #d2a8ff; }
+    .stat { display: inline-block; margin-right: 16px; font-size: 0.8em; }
+    .stat .n { color: #3fb950; font-weight: bold; }
+  </style>
+</head>
+<body>
+  <h1>Nexus P2P Client</h1>
+  <h2>NIP-95 - Cache IndexedDB + WebRTC</h2>
+
+  <div class="status-bar">
+    <span class="badge off" id="badgeWs">WS desconectado</span>
+    <span class="badge off" id="badgePeer">Peer: -</span>
+    <span class="badge off" id="badgeP2P">P2P: 0 conn</span>
+  </div>
+
+  <div class="card">
+    <h3>Controles</h3>
+    <button class="primary" id="btnConnect" onclick="doConnect()">Conectar</button>
+    <button id="btnDisconnect" onclick="doDisconnect()" disabled>Desconectar</button>
+    <span style="margin: 0 8px; color: #30363d">|</span>
+    <button id="btnSubscribe" onclick="doSubscribe()" disabled>Assinar feed</button>
+    <button id="btnStats" onclick="doSendStats()" disabled>Enviar Stats</button>
+  </div>
+
+  <div class="card">
+    <h3>Cache IndexedDB</h3>
+    <div>
+      <span class="stat">Eventos: <span class="n" id="cacheCount">0</span></span>
+      <span class="stat">Anunciados: <span class="n" id="announcedCount">0</span></span>
+      <span class="stat">Servidos P2P: <span class="n" id="servedCount">0</span></span>
+    </div>
+  </div>
+
+  <div class="card">
+    <h3>Log</h3>
+    <div class="log" id="logEl"></div>
+  </div>
+
+  <script src="https://unpkg.com/simple-peer@9.11.1/simplepeer.min.js"></script>
+  <script type="module">
+    import { verifyEvent } from 'https://esm.sh/nostr-tools@2.23.3';
+
+    // --- State ---
+    let ws = null;
+    let myPeerId = null;
+    let myStatus = 'disconnected'; // disconnected, casual, super
+    const p2pPeers = new Map(); // peerId -> SimplePeer
+    let servedCount = 0;
+    let announcedCount = 0;
+
+    // --- IndexedDB ---
+    const DB_NAME = 'nexus-cache';
+    const STORE = 'events';
+    const TTL_MS = 24 * 60 * 60 * 1000; // 24h
+
+    function openDB() {
+      return new Promise((resolve, reject) => {
+        const req = indexedDB.open(DB_NAME, 1);
+        req.onupgradeneeded = () => {
+          const db = req.result;
+          if (!db.objectStoreNames.contains(STORE)) {
+            db.createObjectStore(STORE, { keyPath: 'id' });
+          }
+        };
+        req.onsuccess = () => resolve(req.result);
+        req.onerror = () => reject(req.error);
+      });
+    }
+
+    async function cacheEvent(event) {
+      const db = await openDB();
+      const tx = db.transaction(STORE, 'readwrite');
+      tx.objectStore(STORE).put({ ...event, _cachedAt: Date.now() });
+      await new Promise((r, e) => { tx.oncomplete = r; tx.onerror = e; });
+      updateCacheCount();
+    }
+
+    async function getCachedEvent(eventId) {
+      const db = await openDB();
+      const tx = db.transaction(STORE, 'readonly');
+      const req = tx.objectStore(STORE).get(eventId);
+      return new Promise((resolve) => {
+        req.onsuccess = () => {
+          const e = req.result;
+          if (e && (Date.now() - e._cachedAt) < TTL_MS) {
+            resolve(e);
+          } else {
+            resolve(null);
+          }
+        };
+        req.onerror = () => resolve(null);
+      });
+    }
+
+    async function getAllCachedEventIds() {
+      const db = await openDB();
+      const tx = db.transaction(STORE, 'readonly');
+      const req = tx.objectStore(STORE).getAllKeys();
+      return new Promise((resolve) => {
+        req.onsuccess = () => resolve(req.result);
+        req.onerror = () => resolve([]);
+      });
+    }
+
+    async function cleanExpiredCache() {
+      const db = await openDB();
+      const tx = db.transaction(STORE, 'readwrite');
+      const store = tx.objectStore(STORE);
+      const req = store.openCursor();
+      let cleaned = 0;
+      req.onsuccess = () => {
+        const cursor = req.result;
+        if (cursor) {
+          if (Date.now() - cursor.value._cachedAt > TTL_MS) {
+            cursor.delete();
+            cleaned++;
+          }
+          cursor.continue();
+        }
+      };
+      await new Promise((r) => { tx.oncomplete = r; });
+      if (cleaned > 0) log(`Cache: limpou ${cleaned} eventos expirados`, 'info');
+      updateCacheCount();
+    }
+
+    async function updateCacheCount() {
+      const ids = await getAllCachedEventIds();
+      document.getElementById('cacheCount').textContent = ids.length;
+    }
+
+    // --- Logging ---
+    function log(msg, cls = 'info') {
+      const el = document.getElementById('logEl');
+      const ts = new Date().toISOString().slice(11, 23);
+      el.innerHTML += `<div class="${cls}">[${ts}] ${msg}</div>`;
+      el.scrollTop = el.scrollHeight;
+    }
+
+    function updateBadges() {
+      const bWs = document.getElementById('badgeWs');
+      const bPeer = document.getElementById('badgePeer');
+      const bP2P = document.getElementById('badgeP2P');
+
+      if (ws?.readyState === 1) { bWs.className = 'badge on'; bWs.textContent = 'WS conectado'; }
+      else { bWs.className = 'badge off'; bWs.textContent = 'WS desconectado'; }
+
+      if (myStatus === 'super') { bPeer.className = 'badge super'; bPeer.textContent = `Super Peer`; }
+      else if (myStatus === 'casual') { bPeer.className = 'badge on'; bPeer.textContent = `Casual`; }
+      else { bPeer.className = 'badge off'; bPeer.textContent = 'Peer: -'; }
+
+      const pCount = p2pPeers.size;
+      if (pCount > 0) { bP2P.className = 'badge p2p'; bP2P.textContent = `P2P: ${pCount} conn`; }
+      else { bP2P.className = 'badge off'; bP2P.textContent = 'P2P: 0 conn'; }
+
+      document.getElementById('servedCount').textContent = servedCount;
+      document.getElementById('announcedCount').textContent = announcedCount;
+    }
+
+    // --- WebSocket ---
+    window.doConnect = function() {
+      const protocol = location.protocol === 'https:' ? 'wss:' : 'ws:';
+      ws = new WebSocket(`${protocol}//${location.host}`);
+
+      ws.onopen = () => {
+        log('WebSocket conectado', 'ok');
+        document.getElementById('btnConnect').disabled = true;
+        document.getElementById('btnDisconnect').disabled = false;
+        document.getElementById('btnSubscribe').disabled = false;
+        document.getElementById('btnStats').disabled = false;
+
+        // Auto-register
+        ws.send(JSON.stringify(['PEER_REGISTER', { bandwidth: 10, storage: 500 }]));
+        log('PEER_REGISTER enviado');
+
+        updateBadges();
+      };
+
+      ws.onmessage = (e) => handleMessage(JSON.parse(e.data));
+
+      ws.onclose = () => {
+        log('WebSocket desconectado', 'err');
+        myStatus = 'disconnected';
+        myPeerId = null;
+        document.getElementById('btnConnect').disabled = false;
+        document.getElementById('btnDisconnect').disabled = true;
+        document.getElementById('btnSubscribe').disabled = true;
+        document.getElementById('btnStats').disabled = true;
+        updateBadges();
+      };
+    };
+
+    window.doDisconnect = function() { if (ws) ws.close(); };
+
+    window.doSubscribe = function() {
+      if (!ws) return;
+      // Subscribe to recent text notes
+      ws.send(JSON.stringify(['REQ', 'feed', { kinds: [1], limit: 20 }]));
+      log('Assinando feed (kind:1, limit:20)');
+    };
+
+    window.doSendStats = function() {
+      if (!ws) return;
+      ws.send(JSON.stringify(['PEER_STATS', { events_served: servedCount, bytes_transferred: 0, peers_connected: p2pPeers.size }]));
+      log('PEER_STATS enviado');
+    };
+
+    // --- Message Handler ---
+    async function handleMessage(msg) {
+      if (!Array.isArray(msg)) return;
+      const [type, payload] = msg;
+
+      switch (type) {
+        case 'PEER_REGISTERED':
+          myPeerId = payload.peer_id;
+          myStatus = 'casual';
+          log(`Registrado: ${myPeerId.slice(0, 12)}...`, 'ok');
+          // Announce cached events
+          announceCache();
+          updateBadges();
+          break;
+
+        case 'PEER_PROMOTED':
+          myStatus = 'super';
+          log(`PROMOVIDO a Super Peer! (${payload.reason})`, 'p2p');
+          updateBadges();
+          break;
+
+        case 'PEER_DEMOTED':
+          myStatus = 'casual';
+          log(`Demovido para Casual (${payload.reason})`, 'err');
+          updateBadges();
+          break;
+
+        case 'PEER_HEARTBEAT_ACK':
+          // silent
+          break;
+
+        case 'PEER_STATS_OK':
+          log(`Stats OK - reputacao: ${payload.reputation}, servidos: ${payload.total_events_served}`, 'ok');
+          break;
+
+        case 'PEER_OFFER':
+          handleOffer(payload);
+          break;
+
+        case 'PEER_SIGNAL':
+          handleSignalRelay(payload);
+          break;
+
+        case 'PEER_EVENT_NEW':
+          log(`Novo evento para cachear: ${payload.event_id.slice(0, 12)}... (kind:${payload.kind})`, 'info');
+          break;
+
+        case 'PEER_RECONNECT':
+          log(`Super Peer ${payload.disconnected_peer.slice(0, 8)} desconectou - reconectando...`, 'err');
+          // Close broken P2P connections
+          const brokenPeer = p2pPeers.get(payload.disconnected_peer);
+          if (brokenPeer) { brokenPeer.destroy(); p2pPeers.delete(payload.disconnected_peer); }
+          updateBadges();
+          break;
+
+        case 'PEER_ERROR':
+          log(`Erro: ${payload.message}`, 'err');
+          break;
+
+        case 'EVENT': {
+          // Nostr event from strfry - cache it
+          const event = msg[2];
+          if (event?.id) {
+            await cacheEvent(event);
+            // Announce to Nexus that we have this event
+            ws.send(JSON.stringify(['PEER_CACHE_HAVE', { event_ids: [event.id] }]));
+            announcedCount++;
+            updateBadges();
+          }
+          break;
+        }
+
+        case 'EOSE':
+          log(`EOSE sub:${payload}`, 'info');
+          break;
+      }
+    }
+
+    // Announce all cached events to Nexus on connect
+    async function announceCache() {
+      await cleanExpiredCache();
+      const ids = await getAllCachedEventIds();
+      if (ids.length > 0) {
+        ws.send(JSON.stringify(['PEER_CACHE_HAVE', { event_ids: ids }]));
+        announcedCount = ids.length;
+        log(`Anunciou ${ids.length} eventos em cache`, 'ok');
+        updateBadges();
+      }
+    }
+
+    // --- P2P: Handle PEER_OFFER ---
+    function handleOffer(payload) {
+      const offers = payload.offers || {};
+      const eventIds = Object.keys(offers);
+      if (eventIds.length === 0) return;
+
+      for (const eventId of eventIds) {
+        const targetPeerId = offers[eventId][0];
+        if (!targetPeerId || p2pPeers.has(targetPeerId)) continue;
+
+        log(`PEER_OFFER: ${eventId.slice(0, 12)}... via ${targetPeerId.slice(0, 8)}`, 'p2p');
+        createP2PConnection(targetPeerId, eventId, true);
+      }
+    }
+
+    // --- P2P: Handle relayed signal ---
+    function handleSignalRelay(payload) {
+      const { from_peer, signal_data } = payload;
+
+      if (p2pPeers.has(from_peer)) {
+        p2pPeers.get(from_peer).signal(signal_data);
+      } else {
+        // Create responder connection
+        createP2PConnection(from_peer, null, false);
+        // Need to wait for next tick for peer to be created
+        setTimeout(() => {
+          const peer = p2pPeers.get(from_peer);
+          if (peer) peer.signal(signal_data);
+        }, 10);
+      }
+    }
+
+    // --- P2P: Create WebRTC connection ---
+    function createP2PConnection(targetPeerId, requestedEventId, isInitiator) {
+      const peer = new SimplePeer({ initiator: isInitiator, trickle: true });
+      p2pPeers.set(targetPeerId, peer);
+
+      peer.on('signal', (data) => {
+        ws.send(JSON.stringify(['PEER_SIGNAL', { target_peer: targetPeerId, signal_data: data }]));
+      });
+
+      peer.on('connect', () => {
+        log(`P2P conectado com ${targetPeerId.slice(0, 8)}`, 'p2p');
+        updateBadges();
+
+        if (isInitiator && requestedEventId) {
+          peer.send(JSON.stringify({ type: 'P2P_REQUEST', event_id: requestedEventId }));
+        }
+      });
+
+      peer.on('data', async (data) => {
+        const msg = JSON.parse(data.toString());
+
+        if (msg.type === 'P2P_REQUEST') {
+          const event = await getCachedEvent(msg.event_id);
+          if (event) {
+            const { _cachedAt, ...clean } = event;
+            peer.send(JSON.stringify({ type: 'P2P_EVENTS', event: clean }));
+            servedCount++;
+            log(`Servido via P2P: ${msg.event_id.slice(0, 12)}...`, 'p2p');
+            updateBadges();
+          }
+        }
+
+        if (msg.type === 'P2P_EVENTS') {
+          const event = msg.event;
+          const valid = verifyEvent(event);
+          if (valid) {
+            await cacheEvent(event);
+            log(`Recebido via P2P: ${event.id.slice(0, 12)}... (Schnorr OK)`, 'ok');
+          } else {
+            log(`Evento P2P INVALIDO: ${event.id?.slice(0, 12)}`, 'err');
+          }
+        }
+      });
+
+      peer.on('error', (err) => {
+        log(`P2P erro com ${targetPeerId.slice(0, 8)}: ${err.message}`, 'err');
+        p2pPeers.delete(targetPeerId);
+        updateBadges();
+      });
+
+      peer.on('close', () => {
+        p2pPeers.delete(targetPeerId);
+        updateBadges();
+      });
+    }
+
+    // --- Heartbeat ---
+    setInterval(() => {
+      if (ws?.readyState === 1 && myPeerId) {
+        ws.send(JSON.stringify(['PEER_HEARTBEAT']));
+      }
+    }, 30000);
+
+    // --- Cache cleanup ---
+    setInterval(cleanExpiredCache, 5 * 60 * 1000); // every 5 min
+
+    // Init
+    updateCacheCount();
+  </script>
+</body>
+</html>

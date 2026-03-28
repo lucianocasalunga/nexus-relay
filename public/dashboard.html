@@ -1,0 +1,148 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Nexus Relay - Dashboard</title>
+  <style>
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body { font-family: monospace; background: #0d1117; color: #c9d1d9; padding: 20px; }
+    h1 { color: #58a6ff; margin-bottom: 4px; font-size: 1.4em; }
+    h2 { color: #8b949e; font-size: 0.9em; margin-bottom: 20px; }
+    .grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap: 16px; }
+    .card {
+      border: 1px solid #30363d; border-radius: 8px;
+      padding: 16px; background: #161b22;
+    }
+    .card h3 { color: #f0883e; margin-bottom: 12px; font-size: 1em; }
+    .card.green h3 { color: #3fb950; }
+    .card.purple h3 { color: #d2a8ff; }
+    .card.blue h3 { color: #58a6ff; }
+    .stat { display: flex; justify-content: space-between; padding: 6px 0; border-bottom: 1px solid #21262d; }
+    .stat:last-child { border-bottom: none; }
+    .stat .label { color: #8b949e; }
+    .stat .value { color: #c9d1d9; font-weight: bold; }
+    .stat .value.highlight { color: #3fb950; }
+    .stat .value.warn { color: #f0883e; }
+    .refresh { color: #8b949e; font-size: 0.8em; margin-top: 16px; }
+    #error { color: #f85149; display: none; margin-bottom: 16px; }
+    .bar { background: #21262d; border-radius: 4px; height: 8px; margin-top: 4px; }
+    .bar-fill { background: #3fb950; border-radius: 4px; height: 100%; transition: width 0.3s; }
+  </style>
+</head>
+<body>
+  <h1>Nexus Relay Dashboard</h1>
+  <h2>NIP-95 Hybrid P2P Nostr Relay</h2>
+  <div id="error"></div>
+
+  <div class="grid">
+    <div class="card blue">
+      <h3>Servidor</h3>
+      <div class="stat"><span class="label">Versao</span><span class="value" id="version">-</span></div>
+      <div class="stat"><span class="label">Uptime</span><span class="value" id="uptime">-</span></div>
+      <div class="stat"><span class="label">Memoria</span><span class="value" id="memory">-</span></div>
+    </div>
+
+    <div class="card">
+      <h3>Peers</h3>
+      <div class="stat"><span class="label">WebSocket clients</span><span class="value" id="ws_clients">-</span></div>
+      <div class="stat"><span class="label">Peers registrados</span><span class="value" id="reg_peers">-</span></div>
+      <div class="stat"><span class="label">Super Peers</span><span class="value highlight" id="super_peers">-</span></div>
+      <div class="stat"><span class="label">Casual Peers</span><span class="value" id="casual_peers">-</span></div>
+    </div>
+
+    <div class="card green">
+      <h3>P2P</h3>
+      <div class="stat"><span class="label">Eventos via P2P</span><span class="value highlight" id="p2p_events">-</span></div>
+      <div class="stat"><span class="label">Eventos via Relay</span><span class="value" id="relay_events">-</span></div>
+      <div class="stat"><span class="label">Bytes P2P</span><span class="value" id="p2p_bytes">-</span></div>
+      <div class="stat"><span class="label">Signals relayed</span><span class="value" id="signals">-</span></div>
+      <div class="stat"><span class="label">P2P ratio</span><span class="value highlight" id="p2p_ratio">-</span></div>
+    </div>
+
+    <div class="card purple">
+      <h3>Cache</h3>
+      <div class="stat"><span class="label">Peers com cache</span><span class="value" id="cache_peers">-</span></div>
+      <div class="stat"><span class="label">Eventos unicos</span><span class="value" id="cache_events">-</span></div>
+    </div>
+
+    <div class="card">
+      <h3>Conexoes P2P</h3>
+      <div class="stat"><span class="label">Super Peers ativos</span><span class="value" id="conn_supers">-</span></div>
+      <div class="stat"><span class="label">Conexoes totais</span><span class="value" id="conn_total">-</span></div>
+      <div class="stat"><span class="label">Carga media</span><span class="value" id="conn_avg">-</span></div>
+      <div class="bar"><div class="bar-fill" id="conn_bar" style="width:0%"></div></div>
+    </div>
+
+    <div class="card">
+      <h3>Classificacao</h3>
+      <div class="stat"><span class="label">Promocoes</span><span class="value highlight" id="promotions">-</span></div>
+      <div class="stat"><span class="label">Democoes</span><span class="value warn" id="demotions">-</span></div>
+    </div>
+  </div>
+
+  <div class="refresh">Atualiza a cada 3s | <span id="lastUpdate">-</span></div>
+
+  <script>
+    function formatUptime(s) {
+      const d = Math.floor(s / 86400);
+      const h = Math.floor((s % 86400) / 3600);
+      const m = Math.floor((s % 3600) / 60);
+      if (d > 0) return `${d}d ${h}h ${m}m`;
+      if (h > 0) return `${h}h ${m}m`;
+      return `${m}m ${s % 60}s`;
+    }
+
+    function formatBytes(b) {
+      if (b < 1024) return `${b}B`;
+      if (b < 1048576) return `${(b/1024).toFixed(1)}KB`;
+      return `${(b/1048576).toFixed(1)}MB`;
+    }
+
+    async function update() {
+      try {
+        const r = await fetch('/stats');
+        const d = await r.json();
+
+        document.getElementById('version').textContent = d.server.version;
+        document.getElementById('uptime').textContent = formatUptime(d.server.uptime_seconds);
+        document.getElementById('memory').textContent = `${d.server.memory_mb}MB`;
+
+        document.getElementById('ws_clients').textContent = d.peers.websocket_clients;
+        document.getElementById('reg_peers').textContent = d.peers.registered_peers;
+        document.getElementById('super_peers').textContent = d.peers.super_peers;
+        document.getElementById('casual_peers').textContent = d.peers.casual_peers;
+
+        document.getElementById('p2p_events').textContent = d.p2p.events_via_p2p;
+        document.getElementById('relay_events').textContent = d.p2p.events_via_relay;
+        document.getElementById('p2p_bytes').textContent = formatBytes(d.p2p.bytes_p2p);
+        document.getElementById('signals').textContent = d.p2p.signals_relayed;
+
+        const total = d.p2p.events_via_p2p + d.p2p.events_via_relay;
+        const ratio = total > 0 ? ((d.p2p.events_via_p2p / total) * 100).toFixed(1) : '0';
+        document.getElementById('p2p_ratio').textContent = `${ratio}%`;
+
+        document.getElementById('cache_peers').textContent = d.cache.peers_with_cache;
+        document.getElementById('cache_events').textContent = d.cache.unique_events_cached;
+
+        document.getElementById('conn_supers').textContent = d.connections.active_super_peers;
+        document.getElementById('conn_total').textContent = d.connections.total_p2p_connections;
+        document.getElementById('conn_avg').textContent = `${d.connections.avg_load_per_super}/10`;
+        document.getElementById('conn_bar').style.width = `${Math.min(100, (d.connections.avg_load_per_super / 10) * 100)}%`;
+
+        document.getElementById('promotions').textContent = d.classification.promotions;
+        document.getElementById('demotions').textContent = d.classification.demotions;
+
+        document.getElementById('lastUpdate').textContent = new Date().toLocaleTimeString();
+        document.getElementById('error').style.display = 'none';
+      } catch (e) {
+        document.getElementById('error').textContent = `Erro: ${e.message}`;
+        document.getElementById('error').style.display = 'block';
+      }
+    }
+
+    update();
+    setInterval(update, 3000);
+  </script>
+</body>
+</html>

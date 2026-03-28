@@ -49,8 +49,8 @@ Tres camadas: Seed Node (relay central) + Super Peers (clientes estaveis) + Casu
 
 ## STATUS ATUAL
 
-**Fase:** 3 - COMPLETA | Proxima: Fase 4 - Cache e Super Peers
-**Progresso:** Fase 3 Protocolo NIP-95 implementado e testado (28/Mar/2026)
+**Fase:** 4 - COMPLETA | Proxima: Fase 5 - Biblioteca Cliente (nostr-p2p.js)
+**Progresso:** Fase 4 Cache e Super Peers implementado e testado (28/Mar/2026)
 **Porta:** 8889 (8888 ocupada pelo relay-moderation-api)
 
 ---
@@ -188,6 +188,31 @@ Tres camadas: Seed Node (relay central) + Super Peers (clientes estaveis) + Casu
 
 ---
 
+### 2026-03-28 - Fase 4 COMPLETA: Cache e Super Peers
+
+**Realizacoes:**
+- Tracker de conexoes P2P: limite 10 peers por Super Peer, load tracking
+- PEER_OFFER filtra Super Peers lotados automaticamente
+- Redistribuicao: quando Super Peer desconecta, orphans recebem PEER_RECONNECT
+- Endpoint /stats com metricas completas (server, peers, p2p, cache, conexoes, classificacao)
+- Dashboard HTML em /dashboard.html com auto-refresh 3s
+- Cliente completo em /client.html com IndexedDB cache (TTL 24h), auto-announce, heartbeat, PEER_RECONNECT handling
+- Metricas refletem peers conectados, cache, e limpam no disconnect
+- Testes: 74 totais (23 F2 + 25 F3 + 26 F4), zero falhas
+
+**Arquivos criados/modificados:**
+- src/peers/connections.ts — tracker de conexoes P2P com limites (NOVO)
+- src/metrics.ts — metricas centralizadas (NOVO)
+- src/server.ts — endpoint /stats, import metrics
+- src/signaling/handler.ts — PEER_OFFER filtra Super Peers lotados
+- src/signaling/messages.ts — PEER_RECONNECT
+- src/peers/manager.ts — redistribuicao orphans no disconnect
+- public/dashboard.html — dashboard de metricas (NOVO)
+- public/client.html — cliente P2P completo com IndexedDB (NOVO)
+- tests/test-fase4.ts — 26 asserts (NOVO)
+
+---
+
 ## BUGS E SOLUCOES
 
-(Nenhum - Fases 1, 2 e 3 limpas)
+(Nenhum - Fases 1, 2, 3 e 4 limpas)

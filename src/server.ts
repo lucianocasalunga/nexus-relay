@@ -7,6 +7,7 @@ import { config } from './utils/config';
 import { logger } from './utils/logger';
 import { route } from './router';
 import { handleDisconnect } from './peers/manager';
+import { getMetrics } from './metrics';
 
 const log = logger('server');
 
@@ -72,9 +73,27 @@ async function handleHttp(req: IncomingMessage, res: ServerResponse): Promise<vo
     return;
   }
 
-  const url = req.url === '/' ? '/test.html' : req.url || '/test.html';
-  const ext = url.substring(url.lastIndexOf('.'));
-  const filePath = resolve(__dirname, '../public', url.replace(/^\//, ''));
+  const url = req.url || '/';
+
+  // Metrics API endpoint
+  if (url === '/stats' || url === '/metrics') {
+    try {
+      const metrics = await getMetrics();
+      res.writeHead(200, {
+        'Content-Type': 'application/json',
+        'Access-Control-Allow-Origin': '*',
+      });
+      res.end(JSON.stringify(metrics, null, 2));
+    } catch (err) {
+      res.writeHead(500);
+      res.end('Internal error');
+    }
+    return;
+  }
+
+  // Static files
+  const filePath = resolve(__dirname, '../public', (url === '/' ? 'test.html' : url).replace(/^\//, ''));
+  const ext = filePath.substring(filePath.lastIndexOf('.'));
 
   try {
     const content = await readFile(filePath);

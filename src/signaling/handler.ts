@@ -5,6 +5,7 @@ import {
   classifyPeer, promotePeer, demotePeer,
   adjustReputation, recordEventServed, getReputation, getEventsServed,
 } from '../peers/classifier';
+import { isSuperPeerFull, registerConnection } from '../peers/connections';
 import { PeerCapabilities } from '../peers/types';
 import { logger } from '../utils/logger';
 import {
@@ -160,11 +161,12 @@ async function onRequest(client: NexusClient, args: unknown[]): Promise<void> {
     return;
   }
 
-  // For each requested event, find peers that have it (excluding requester)
+  // For each requested event, find peers that have it (excluding requester and full Super Peers)
   const offers: Record<string, string[]> = {};
 
   for (const eventId of payload.event_ids) {
-    const peers = getPeersWithEvent(eventId).filter(pid => pid !== client.id);
+    const peers = getPeersWithEvent(eventId)
+      .filter(pid => pid !== client.id && !isSuperPeerFull(pid));
     if (peers.length > 0) {
       offers[eventId] = peers;
     }

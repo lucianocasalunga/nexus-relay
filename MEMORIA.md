@@ -49,9 +49,9 @@ Tres camadas: Seed Node (relay central) + Super Peers (clientes estaveis) + Casu
 
 ## STATUS ATUAL
 
-**Fase:** 0 - COMPLETA | Proxima: Fase 1 - Signaling Server
-**Progresso:** Fase 0 concluida e validada por Barak
-**Plano Fase 1:** FASE1_PLANO_EXECUCAO.md (10 etapas, ~3h, pronto para executar)
+**Fase:** 1 - COMPLETA | Proxima: Fase 2 - WebRTC P2P
+**Progresso:** Fase 1 implementada e testada (28/Mar/2026)
+**Porta:** 8889 (8888 ocupada pelo relay-moderation-api)
 
 ---
 
@@ -78,7 +78,7 @@ Tres camadas: Seed Node (relay central) + Super Peers (clientes estaveis) + Casu
 
 ## DECISOES TECNICAS (Fase 0 - 27/Mar/2026)
 
-- Backend: Node.js/TypeScript (porta 8888)
+- Backend: Node.js/TypeScript (porta 8889, mudou de 8888 que esta ocupada pelo relay-moderation-api)
 - Cliente: TypeScript + simple-peer (WebRTC)
 - Cache peers: Redis (container existente)
 - Cache eventos servidor: tmpfs 8GB ramdisk
@@ -89,6 +89,33 @@ Tres camadas: Seed Node (relay central) + Super Peers (clientes estaveis) + Casu
 
 ---
 
+### 2026-03-28 - Fase 1 Implementada
+
+**Realizacoes:**
+- Setup completo: Node.js + TypeScript + dotenv + ws + redis + nostr-tools
+- 10 arquivos TypeScript criados em src/ (zero erros de compilacao)
+- WebSocket server na porta 8889
+- Router: PEER_* → signaling handler, REQ/EVENT → proxy strfry
+- Proxy bidirecional Nexus ↔ strfry:7777 (transparente)
+- Peer Manager: registro, heartbeat, cleanup no Redis
+- Signaling: PEER_REGISTER, PEER_HEARTBEAT com respostas
+- Redis: chaves prefixadas com nexus: (peer:{id}, peers:all, peers:casual)
+- Testes manuais: proxy OK, register OK, heartbeat OK, cleanup OK, modo hibrido OK
+
+**Problema encontrado:**
+- Porta 8888 ocupada pelo container relay-moderation-api
+- Solucao: mudou para porta 8889
+
+**Testes realizados:**
+1. REQ via Nexus → recebeu 3 eventos do strfry (proxy OK)
+2. PEER_REGISTER → recebeu PEER_REGISTERED com peer_id
+3. PEER_HEARTBEAT → recebeu PEER_HEARTBEAT_ACK
+4. Redis keys nexus:* aparecem enquanto peer conectado
+5. Apos desconexao, keys removidas automaticamente
+6. Modo hibrido: PEER_REGISTER + REQ no mesmo cliente (OK)
+
+---
+
 ## BUGS E SOLUCOES
 
-(Nenhum ainda - projeto em planejamento)
+(Nenhum - Fase 1 limpa)

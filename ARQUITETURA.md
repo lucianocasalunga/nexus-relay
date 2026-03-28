@@ -37,7 +37,7 @@ nexus.libernet.app → nexus:8888     (overlay P2P)
 | Porta | Servico |
 |-------|---------|
 | 7777 | strfry (Nostr classico) |
-| 8888 | Nexus (signaling + proxy) |
+| 8889 | Nexus (signaling + proxy) |
 | 6379 | Redis (cache peers) |
 
 ## FLUXOS

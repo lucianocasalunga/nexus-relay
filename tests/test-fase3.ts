@@ -77,7 +77,7 @@ async function run(): Promise<void> {
   assert(info.supported_nips.includes(11), 'NIP-11 listada nos supported_nips');
   assert(info.extra.p2p_enabled === true, 'p2p_enabled: true');
   assert(info.extra.p2p_protocol === 'NIP-95', 'p2p_protocol: NIP-95');
-  assert(info.version === '0.3.0', `version: ${info.version}`);
+  assert(info.version === '1.0.0', `version: ${info.version}`);
 
   // Normal HTTP (no nostr+json) still serves page
   const htmlResp = await httpGet(NEXUS_HTTP);

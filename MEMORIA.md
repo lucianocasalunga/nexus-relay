@@ -2,7 +2,7 @@
 
 > Relay Nostr Hibrido P2P - NIP-95
 > Criado: 27 de Marco de 2026
-> Ultima atualizacao: 27/Mar/2026
+> Ultima atualizacao: 29/Mar/2026
 
 ---
 
@@ -306,6 +306,48 @@ Tres camadas: Seed Node (relay central) + Super Peers (clientes estaveis) + Casu
 - kind:30166 publicado nos relays nexus.libernet.app e relay.libernet.app
 - Assinado com chave do Barak
 - Time-machine: `/mnt/storage/backups/nexus-relay/timemachine_20260328_195000_nip11-icon/`
+
+---
+
+### Sessao 29/Mar/2026 — Feed Engine + Visual (Claude Code)
+
+**Feed Engine v1.0.0 criado:**
+- Algoritmo de ranking: E x WoT x Decay + PoW bonus
+- Pesos: reaction=1, repost=2, reply=8, mutual_reply=25, zap=log10(sats)x10
+- Web of Trust global (PageRank), 12k trust scores
+- API REST :8890 + WS Relay em /relay
+- Integrado no Nexus: HTTP proxy /feed/* + router detecta tag #feed
+- 87 testes, 0 falhas, 25MB RAM
+- Projeto separado: /mnt/projetos/feed-engine/
+- GitHub: https://github.com/lucianocasalunga/feed-engine
+
+**NIP-11 corrigido:**
+- pubkey preenchida (era vazia)
+- Campo "extra" removido (nao faz parte da spec)
+- Icon atualizado para novo logo N (botao laranja com fundo branco)
+
+**Logo atualizado:**
+- Novo nexus-badge.png (botao N laranja, fundo branco circular)
+- Novo nexus-relay.png para seletor de relays no LiberMedia
+- relay.libernet.app MANTEM icon amarelo original (diferenciacao)
+
+**Mini Feed sidebar direita:**
+- mini-feed.js: modulo self-contained para todas as paginas desktop
+- Seletor de relay independente, filtros (Tudo/Imagens/Videos)
+- Posts compactos read-only, click abre thread no feed principal
+- Carrega via base.html em todas as paginas
+
+**Nostr.watch:**
+- Descentralizacao: 100/100 (top 100%)
+- Monitores: 9 (top 98%)
+- NIPs: 14 (top 92%)
+- RTT medio: 979ms (top 55%)
+
+**Otimizacoes TCP aplicadas:**
+- tcp_slow_start_after_idle=0
+- tcp_mtu_probing=1, tcp_ecn=1
+- default_qdisc=fq (para BBR)
+- Cache NIP-11 no Cloudflare (Cache-Control 300s)
 
 ---
 

@@ -39,7 +39,7 @@ const MIME: Record<string, string> = {
 const NIP11_INFO = JSON.stringify({
   name: 'Nexus Relay',
   description: 'Hybrid P2P Nostr Relay - NIP-95',
-  pubkey: '',
+  pubkey: '9b31915dd140b34774cb60c42fc0e015d800cde7f5e4f82a5f2d4e21d72803e4',
   contact: 'admin@libernet.app',
   icon: 'https://media.libernet.app/343e049cd27aaf9ce2b31d61637cd00bee7e326b029403e9edb386097f95788e.png',
   supported_nips: [1, 2, 4, 9, 11, 12, 15, 16, 20, 22, 28, 33, 40, 95],
@@ -52,14 +52,6 @@ const NIP11_INFO = JSON.stringify({
     max_limit: 5000,
     auth_required: false,
     payment_required: false,
-  },
-  extra: {
-    p2p_enabled: true,
-    p2p_protocol: 'NIP-95',
-    p2p_signaling: 'WebRTC via WebSocket',
-    p2p_peer_types: ['casual', 'super'],
-    p2p_data_channel: 'reliable ordered',
-    strfry_backend: true,
   },
 });
 

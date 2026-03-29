@@ -298,6 +298,17 @@ Tres camadas: Seed Node (relay central) + Super Peers (clientes estaveis) + Casu
 
 ---
 
+### 28/Mar (noite) — NIP-11 Icon + kind:30166 Relay Metadata
+
+- Logo 256x256 criado e hospedado no LiberMedia
+- URL: `https://media.libernet.app/343e049cd27aaf9ce2b31d61637cd00bee7e326b029403e9edb386097f95788e.png`
+- NIP-11 atualizado em `src/server.ts` com campo `icon`
+- kind:30166 publicado nos relays nexus.libernet.app e relay.libernet.app
+- Assinado com chave do Barak
+- Time-machine: `/mnt/storage/backups/nexus-relay/timemachine_20260328_195000_nip11-icon/`
+
+---
+
 ## BUGS E SOLUCOES
 
 (Nenhum - Fases 1-7 limpas)

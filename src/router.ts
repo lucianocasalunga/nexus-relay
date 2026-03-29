@@ -4,6 +4,7 @@ import { proxyToStrfry } from './proxy';
 import { isPeerRegistered } from './peers/manager';
 import { getPeersWithEvent } from './peers/cache-tracker';
 import { MSG_PEER_OFFER } from './signaling/messages';
+import { detectFeedFilter, serveFeed } from './feed-proxy';
 import { logger } from './utils/logger';
 
 const log = logger('router');
@@ -18,11 +19,26 @@ export function route(client: NexusClient, msg: unknown[]): void {
 
   if (typeof type === 'string' && type.startsWith('PEER_')) {
     handleSignaling(client, type, msg.slice(1));
-  } else if (type === 'REQ' && isPeerRegistered(client.id)) {
-    // Smart routing: peer registrado - tenta P2P para eventos recentes
-    smartReq(client, msg);
+  } else if (type === 'REQ') {
+    // Verificar se e um pedido de feed algoritmico
+    const filters = msg.slice(2) as Record<string, unknown>[];
+    const feedType = detectFeedFilter(filters);
+
+    if (feedType) {
+      // Feed algoritmico: servir via Feed Engine
+      serveFeed(client, msg).catch(err => {
+        log.error('Erro ao servir feed', err);
+        proxyToStrfry(client, msg);
+      });
+    } else if (isPeerRegistered(client.id)) {
+      // Smart routing: peer registrado - tenta P2P para eventos recentes
+      smartReq(client, msg);
+    } else {
+      // REQ normal - proxy to strfry
+      proxyToStrfry(client, msg);
+    }
   } else {
-    // REQ (non-peer), EVENT, CLOSE, AUTH, COUNT - proxy to strfry
+    // EVENT, CLOSE, AUTH, COUNT - proxy to strfry
     proxyToStrfry(client, msg);
   }
 }

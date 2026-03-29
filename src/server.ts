@@ -1,5 +1,6 @@
 import { WebSocketServer, WebSocket } from 'ws';
 import { createServer, IncomingMessage, ServerResponse } from 'http';
+import http from 'http';
 import { readFile } from 'fs/promises';
 import { resolve } from 'path';
 import { randomUUID } from 'crypto';
@@ -76,6 +77,22 @@ async function handleHttp(req: IncomingMessage, res: ServerResponse): Promise<vo
 
   const url = req.url || '/';
 
+  // Feed Engine proxy endpoints
+  if (url.startsWith('/feed/')) {
+    try {
+      const feedRes = await fetchFromFeedEngine(url);
+      res.writeHead(200, {
+        'Content-Type': 'application/json',
+        'Access-Control-Allow-Origin': '*',
+      });
+      res.end(feedRes);
+    } catch (err) {
+      res.writeHead(502);
+      res.end(JSON.stringify({ error: 'feed_engine_unavailable' }));
+    }
+    return;
+  }
+
   // Metrics API endpoint
   if (url === '/stats' || url === '/metrics') {
     try {
@@ -104,6 +121,16 @@ async function handleHttp(req: IncomingMessage, res: ServerResponse): Promise<vo
     res.writeHead(404);
     res.end('Not found');
   }
+}
+
+function fetchFromFeedEngine(path: string): Promise<string> {
+  return new Promise((resolve, reject) => {
+    http.get(`http://127.0.0.1:8890${path}`, (res) => {
+      let data = '';
+      res.on('data', (chunk) => data += chunk);
+      res.on('end', () => resolve(data));
+    }).on('error', reject);
+  });
 }
 
 export function startServer(): WebSocketServer {

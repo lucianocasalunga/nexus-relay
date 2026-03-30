@@ -455,6 +455,34 @@ Tres camadas: Seed Node (relay central) + Super Peers (clientes estaveis) + Casu
 
 ---
 
+### PENDENTE PRIORITARIO: Integrar Feed Engine no relay.libernet.app
+
+**Status:** BLOQUEADO — requer mudanca no Cloudflare Dashboard
+**Prioridade:** ALTA — fazer na proxima sessao
+
+**Problema:**
+- O Caddy ja esta configurado com rotas /feed/* → Feed Engine (porta 8890)
+- Mas o Cloudflare Tunnel aponta relay.libernet.app direto para localhost:7777 (strfry)
+- O trafego nunca chega ao Caddy (porta 80), vai direto pro strfry
+- Por isso /feed/trending retorna HTML do strfry em vez de JSON do Feed Engine
+
+**Solucao:**
+1. Mudar no Cloudflare Dashboard (ou via API) o tunnel `relay-libernet-app` de `localhost:7777` para `localhost:80`
+2. O Caddy ja tem as rotas prontas:
+   - /feed/* → Feed Engine (localhost:8890)
+   - /feed-stats → Feed Engine /stats
+   - /wot/* → Feed Engine
+   - WebSocket → strfry (localhost:7777)
+   - NIP-11 → strfry (localhost:7777)
+   - HTTP normal → pagina HTML estatica
+
+**Arquivo Caddy ja editado:** /etc/caddy/Caddyfile (linhas 155-200)
+**Teste local funcionando:** `curl http://localhost:80/feed/trending -H "Host: relay.libernet.app"` retorna JSON correto
+
+**ATENCAO:** Consultar /opt/CLOUDFLARE_CONFIGURACAO_PETREA.md antes de mudar — Dashboard SOBRESCREVE config local!
+
+---
+
 ## BUGS E SOLUCOES
 
 ### broadcast.ts — IDs stale no Redis (30/Mar/2026)

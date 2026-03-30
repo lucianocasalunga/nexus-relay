@@ -351,6 +351,113 @@ Tres camadas: Seed Node (relay central) + Super Peers (clientes estaveis) + Casu
 
 ---
 
+### Sessao 29/Mar/2026 — Plano Cloudmor Super Peer (Claude Code)
+
+**Diagnostico P2P:**
+- WebSocket relay funcional: 42 clientes simultaneos, eventos fluindo
+- P2P: 0 eventos trocados, 0 conexoes WebRTC efetivas
+- Peers registram mas desconectam rapido (visitantes da landing page)
+- Desconexoes NAO sao erro nosso — clientes Nostr fazem fire-and-forget
+
+**Decisao:** Usar cloudmor (fabrica) como Super Peer permanente 24/7
+- Cliente headless Node.js em /opt/nexus-peer/
+- Conecta via outbound (Fortigate nao bloqueia)
+- Cacheia eventos 24h, serve via WebRTC
+- Se libernet cair, cloudmor mantem rede viva
+- Primeiro peer "real" da rede — prova de conceito NIP-95
+
+**Plano completo:** `/mnt/projetos/nexus-relay/PLANO_CLOUDMOR_SUPERPEER.md`
+**Implementacao:** Prevista 30/Mar/2026 (Barak na fabrica)
+**Fases:** 4 (cliente basico → broadcast → WebRTC → producao)
+
+---
+
+### Sessao 30/Mar/2026 — CloudMor Super Peer OPERACIONAL (Claude Code + Barak)
+
+**CloudMor Super Peer implementado e rodando:**
+- Cliente headless Node.js em /mnt/projetos/nexus-p2p/ (no cloudmor)
+- Conecta via WebSocket ao nexus.libernet.app
+- Registra como peer tipo "server" (100Mbps, 5GB)
+- Cacheia eventos em memoria (TTL 24h, max 10k)
+- WebRTC habilitado via node-datachannel
+- Systemd service (nexus-peer.service) com auto-restart
+- Reconexao automatica com backoff exponencial (5s-60s)
+
+**Correcoes no Nexus (broadcast.ts):**
+- Broadcast agora envia evento completo (antes so metadata)
+- Trocado Redis sets (IDs stale) por getRegisteredPeerIds() in-memory
+- Broadcast para todos os peers (antes so super peers)
+- Adicionado getRegisteredPeerIds() em manager.ts
+
+**Resultados:**
+- 10+ eventos cacheados em minutos
+- Dashboard mostra: 1 peer registrado, 1 peer com cache
+- Reconexao testada (3x durante a sessao)
+- Primeiro Super Peer "real" da rede NIP-95
+
+**Memoria do CloudMor:** /mnt/projetos/nexus-p2p/MEMORIA.md
+
+---
+
+### PROXIMO PROJETO: Nexus Peer App (Instalavel)
+
+**Objetivo:** Aplicativo desktop para qualquer usuario instalar e se tornar um no P2P do Nexus, sem conhecimento tecnico.
+
+**Conceito:**
+- Usuario baixa o instalador para seu OS
+- Instala e roda — computador vira um repetidor P2P
+- Tray icon mostrando status (conectado, eventos cacheados, peers)
+- Pagina de download em nexus.libernet.app
+- Modelo de incentivo: reputacao → recompensas em sats (NIP-95 monetizacao)
+
+**Distribuicao (3 binarios):**
+| OS | Formato | Ferramenta |
+|----|---------|------------|
+| Windows | .exe | pkg + electron-builder |
+| macOS | .dmg | pkg + electron-builder |
+| Linux | AppImage ou .deb | pkg + electron-builder |
+
+**Stack proposta:**
+- **Electron** para UI (tray icon, janela de status, config)
+- **pkg** como alternativa CLI (binario sem UI, para servidores/avancados)
+- Codigo base: reutiliza nexus-p2p do CloudMor (connection, cache, webrtc, peer-protocol)
+- Auto-update via electron-updater ou GitHub Releases
+
+**Fases planejadas:**
+
+1. **CLI standalone** — Empacotar nexus-p2p com pkg (3 binarios, zero deps)
+   - `nexus-peer-linux`, `nexus-peer-macos`, `nexus-peer-win.exe`
+   - Roda no terminal, mostra status colorido
+   - Publicar no GitHub Releases
+
+2. **Electron wrapper** — Interface grafica minima
+   - Tray icon com status (verde=conectado, vermelho=offline)
+   - Janela: eventos cacheados, peers conectados, reputacao
+   - Botao on/off
+   - Configuracao: relay URL, bandwidth, storage
+
+3. **Pagina de download** — Landing page em nexus.libernet.app
+   - Detecta OS do visitante, mostra botao correto
+   - Explica beneficio de rodar um peer
+   - Mostra stats da rede (total peers, eventos, etc)
+
+4. **Monetizacao** — Integrar recompensas
+   - Lightning Address do usuario
+   - Apos 1 mes como Super Peer, desbloqueia zaps
+   - Dashboard de ganhos
+
+**Riscos:**
+- node-datachannel pode nao compilar em todos OS → fallback: wrtc ou WebSocket-only
+- Electron e pesado (~100MB) → alternativa: Tauri (Rust, ~10MB)
+- Firewalls corporativos bloqueiam WebRTC → fallback via relay
+
+**Prioridade:** Media (apos estabilizar Super Peer CloudMor por 1 semana)
+
+---
+
 ## BUGS E SOLUCOES
 
-(Nenhum - Fases 1-7 limpas)
+### broadcast.ts — IDs stale no Redis (30/Mar/2026)
+- **Problema:** Apos restart do Nexus, Redis mantinha IDs de peers antigos nos sets peers:casual e peers:super. O broadcast verificava isPeerRegistered() (in-memory, vazio apos restart) e skipava todos.
+- **Solucao:** Trocado para getRegisteredPeerIds() que retorna IDs in-memory (sempre atuais). Removida dependencia de Redis sets para broadcast.
+- **Arquivos:** broadcast.ts, peers/manager.ts

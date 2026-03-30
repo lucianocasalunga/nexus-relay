@@ -98,3 +98,7 @@ export function isPeerRegistered(clientId: string): boolean {
 export function getRegisteredPeerCount(): number {
   return registeredPeers.size;
 }
+
+export function getRegisteredPeerIds(): string[] {
+  return Array.from(registeredPeers);
+}

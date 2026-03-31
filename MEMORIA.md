@@ -401,7 +401,8 @@ Tres camadas: Seed Node (relay central) + Super Peers (clientes estaveis) + Casu
 
 ### PROXIMO PROJETO: Nexus Peer App (Instalavel)
 
-**Objetivo:** Aplicativo desktop para qualquer usuario instalar e se tornar um no P2P do Nexus, sem conhecimento tecnico.
+**Objetivo:** Aplicativo desktop para qualquer usuario instalar e se tornar um peer P2P do Nexus, sem conhecimento tecnico.
+**Decisao (31/Mar/2026):** TAURI (Rust + WebView) — Claude e Gemini concordam. Menor, mais eficiente, ideal para app P2P em background.
 
 **Conceito:**
 - Usuario baixa o instalador para seu OS
@@ -410,76 +411,68 @@ Tres camadas: Seed Node (relay central) + Super Peers (clientes estaveis) + Casu
 - Pagina de download em nexus.libernet.app
 - Modelo de incentivo: reputacao → recompensas em sats (NIP-95 monetizacao)
 
+**Arquitetura (Tauri + Node.js Wrapper):**
+- **Tauri (Rust):** Gerencia processo Node.js filho, tray icon, auto-update, IPC broker
+- **Node.js (processo filho):** Codigo existente nexus-p2p (connection, cache, webrtc, peer-protocol)
+- **Frontend (WebView):** UI status, controles, metricas — HTML/CSS/JS leve
+- **IPC:** Rust ↔ Node.js via WebSocket local (127.0.0.1) ou stdout JSON
+- **Nao precisa reescrever P2P em Rust** — Node.js roda como servico gerenciado pelo Tauri
+
 **Distribuicao (3 binarios):**
-| OS | Formato | Ferramenta |
-|----|---------|------------|
-| Windows | .exe | pkg + electron-builder |
-| macOS | .dmg | pkg + electron-builder |
-| Linux | AppImage ou .deb | pkg + electron-builder |
+| OS | Formato | Tamanho estimado |
+|----|---------|-----------------|
+| Windows | .exe (NSIS) | ~15-20MB |
+| macOS | .dmg | ~15-20MB |
+| Linux | AppImage ou .deb | ~10-15MB |
 
-**Stack proposta:**
-- **Electron** para UI (tray icon, janela de status, config)
-- **pkg** como alternativa CLI (binario sem UI, para servidores/avancados)
-- Codigo base: reutiliza nexus-p2p do CloudMor (connection, cache, webrtc, peer-protocol)
-- Auto-update via electron-updater ou GitHub Releases
+**Fases planejadas (atualizado 31/Mar):**
 
-**Fases planejadas:**
+1. **Fase 1: MVP Backend** — Tauri spawna Node.js, IPC basico
+   - Projeto Tauri minimo, Rust inicia nexus-p2p como processo filho
+   - Captura stdout/stderr, comando get_status
+   - Frontend mostra online/offline
 
-1. **CLI standalone** — Empacotar nexus-p2p com pkg (3 binarios, zero deps)
-   - `nexus-peer-linux`, `nexus-peer-macos`, `nexus-peer-win.exe`
-   - Roda no terminal, mostra status colorido
-   - Publicar no GitHub Releases
+2. **Fase 2: IPC Bidirecional** — Controles completos
+   - Node.js expoe WS local para comandos
+   - start/stop/configure via frontend
+   - Tray icon com status
 
-2. **Electron wrapper** — Interface grafica minima
-   - Tray icon com status (verde=conectado, vermelho=offline)
-   - Janela: eventos cacheados, peers conectados, reputacao
-   - Botao on/off
-   - Configuracao: relay URL, bandwidth, storage
+3. **Fase 3: Frontend Completo** — UI dashboard
+   - Lista peers, eventos cacheados, metricas
+   - Logs em tempo real
+   - Configuracoes (relay URL, bandwidth, storage)
 
-3. **Pagina de download** — Landing page em nexus.libernet.app
-   - Detecta OS do visitante, mostra botao correto
-   - Explica beneficio de rodar um peer
-   - Mostra stats da rede (total peers, eventos, etc)
+4. **Fase 4: Empacotamento** — Distribuicao multi-OS
+   - Tauri bundler (Windows/macOS/Linux)
+   - Auto-update via GitHub Releases
+   - Landing page em nexus.libernet.app
 
-4. **Monetizacao** — Integrar recompensas
+5. **Fase 5: Monetizacao** — Recompensas
    - Lightning Address do usuario
-   - Apos 1 mes como Super Peer, desbloqueia zaps
+   - Apos 1 mes Super Peer, desbloqueia zaps
    - Dashboard de ganhos
 
 **Riscos:**
 - node-datachannel pode nao compilar em todos OS → fallback: wrtc ou WebSocket-only
-- Electron e pesado (~100MB) → alternativa: Tauri (Rust, ~10MB)
+- IPC Rust↔Node.js pode ser complexo → mitigacao: comecar simples com stdout
 - Firewalls corporativos bloqueiam WebRTC → fallback via relay
+- Se Node.js wrapper nao funcionar → ultima opcao: reescrever P2P em Rust com webrtc-rs
 
-**Prioridade:** Media (apos estabilizar Super Peer CloudMor por 1 semana)
+**Prioridade:** Media — iniciar apos CloudMor Super Peer estavel 1 semana (ja cumprido)
 
 ---
 
-### PENDENTE PRIORITARIO: Integrar Feed Engine no relay.libernet.app
+### CONCLUIDO: Feed Engine integrado no relay.libernet.app (31/Mar/2026)
 
-**Status:** BLOQUEADO — requer mudanca no Cloudflare Dashboard
-**Prioridade:** ALTA — fazer na proxima sessao
-
-**Problema:**
-- O Caddy ja esta configurado com rotas /feed/* → Feed Engine (porta 8890)
-- Mas o Cloudflare Tunnel aponta relay.libernet.app direto para localhost:7777 (strfry)
-- O trafego nunca chega ao Caddy (porta 80), vai direto pro strfry
-- Por isso /feed/trending retorna HTML do strfry em vez de JSON do Feed Engine
-
-**Solucao:**
-1. Mudar no Cloudflare Dashboard (ou via API) o tunnel `relay-libernet-app` de `localhost:7777` para `localhost:80`
-2. O Caddy ja tem as rotas prontas:
-   - /feed/* → Feed Engine (localhost:8890)
-   - /feed-stats → Feed Engine /stats
-   - /wot/* → Feed Engine
-   - WebSocket → strfry (localhost:7777)
-   - NIP-11 → strfry (localhost:7777)
-   - HTTP normal → pagina HTML estatica
-
-**Arquivo Caddy ja editado:** /etc/caddy/Caddyfile (linhas 155-200)
-**Teste local funcionando:** `curl http://localhost:80/feed/trending -H "Host: relay.libernet.app"` retorna JSON correto
-
-**ATENCAO:** Consultar /opt/CLOUDFLARE_CONFIGURACAO_PETREA.md antes de mudar — Dashboard SOBRESCREVE config local!
+**Status:** CONCLUIDO
+**Solucao aplicada:**
+- Tunnel Cloudflare mudado via API: relay.libernet.app de localhost:7777 → localhost:80 (Caddy)
+- Token Cloudflare atualizado no cofre (Claude-LiberNet-Full)
+- Caddy roteia: /feed/* → Feed Engine, WebSocket → strfry, NIP-11 → strfry
+- CORS adicionado no Caddy (Access-Control-Allow-Origin: *)
+- Todos os 5 testes passaram (feed, stats, NIP-11, HTTP, WebSocket)
+- Clausula Petrea Cloudflare atualizada (Artigo 3)
+- Time-machine: /mnt/storage/backups/relay-maintenance/timemachine_20260331_060051_pre-feed-engine/
 
 ---
 

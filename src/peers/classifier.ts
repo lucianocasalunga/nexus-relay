@@ -1,4 +1,4 @@
-import { getPeer, addToSet, removeFromSet } from '../redis/client';
+import { getPeer, addToSet, removeFromSet, getRedis } from '../redis/client';
 import { getEventsOfPeer } from './cache-tracker';
 import { logger } from '../utils/logger';
 
@@ -13,12 +13,41 @@ const SUPER_PEER_CRITERIA = {
   minCachedEvents: 1,              // at least 1 event cached
 };
 
-// In-memory reputation and stats
+// In-memory cache (synced with Redis)
 const peerReputation = new Map<string, number>();
 const peerEventsServed = new Map<string, number>();
+// Maps clientId → publicKey for persistent reputation
+const peerPublicKeys = new Map<string, string>();
 
-export function initReputation(peerId: string): void {
-  peerReputation.set(peerId, 70); // start at 70 (above threshold)
+const REDIS_REP_PREFIX = 'nexus:reputation:';
+
+async function loadReputationFromRedis(publicKey: string): Promise<number | null> {
+  const redis = getRedis();
+  if (!redis || !publicKey) return null;
+  const val = await redis.get(`${REDIS_REP_PREFIX}${publicKey}`);
+  return val !== null ? parseInt(val, 10) : null;
+}
+
+async function saveReputationToRedis(publicKey: string, reputation: number): Promise<void> {
+  const redis = getRedis();
+  if (!redis || !publicKey) return;
+  await redis.set(`${REDIS_REP_PREFIX}${publicKey}`, String(reputation));
+}
+
+export async function initReputation(peerId: string, publicKey?: string): Promise<void> {
+  if (publicKey) {
+    peerPublicKeys.set(peerId, publicKey);
+  }
+  const pk = publicKey || '';
+  const saved = pk ? await loadReputationFromRedis(pk) : null;
+  const rep = saved ?? 70;
+  peerReputation.set(peerId, rep);
+  if (saved !== null) {
+    log.info(`restored reputation for ${peerId.slice(0, 8)}: ${rep}`);
+  } else if (pk) {
+    // First time — persist initial reputation
+    await saveReputationToRedis(pk, rep);
+  }
 }
 
 export function getReputation(peerId: string): number {
@@ -29,6 +58,11 @@ export function adjustReputation(peerId: string, delta: number): number {
   const current = peerReputation.get(peerId) ?? 70;
   const next = Math.max(0, Math.min(100, current + delta));
   peerReputation.set(peerId, next);
+  // Persist to Redis via publicKey
+  const pk = peerPublicKeys.get(peerId);
+  if (pk) {
+    saveReputationToRedis(pk, next).catch(() => {});
+  }
   return next;
 }
 
@@ -103,6 +137,13 @@ export async function demotePeer(peerId: string): Promise<void> {
 }
 
 export function cleanupPeerClassifier(peerId: string): void {
+  // Persist final reputation before cleanup
+  const pk = peerPublicKeys.get(peerId);
+  const rep = peerReputation.get(peerId);
+  if (pk && rep !== undefined) {
+    saveReputationToRedis(pk, rep).catch(() => {});
+  }
   peerReputation.delete(peerId);
   peerEventsServed.delete(peerId);
+  peerPublicKeys.delete(peerId);
 }

@@ -34,7 +34,7 @@ export async function registerPeer(
   await addToSet('peers:all', clientId);
   await addToSet('peers:casual', clientId);
   registeredPeers.add(clientId);
-  initReputation(clientId);
+  await initReputation(clientId, capabilities.publicKey);
 
   log.info(`registered peer ${clientId} (bw: ${capabilities.bandwidth ?? '?'}Mbps, storage: ${capabilities.storage ?? '?'}MB)`);
 }

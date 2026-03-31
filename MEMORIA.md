@@ -80,7 +80,7 @@ Tres camadas: Seed Node (relay central) + Super Peers (clientes estaveis) + Casu
 
 - Backend: Node.js/TypeScript (porta 8889, mudou de 8888 que esta ocupada pelo relay-moderation-api)
 - Cliente: TypeScript + simple-peer (WebRTC)
-- Cache peers: Redis (container existente)
+- Cache peers: Redis dedicado relay-redis (127.0.0.1:6381)
 - Cache eventos servidor: tmpfs 8GB ramdisk
 - Cache eventos cliente: IndexedDB (TTL 24h)
 - Protocolo P2P: WebRTC Data Channel confiavel
@@ -473,6 +473,42 @@ Tres camadas: Seed Node (relay central) + Super Peers (clientes estaveis) + Casu
 - Todos os 5 testes passaram (feed, stats, NIP-11, HTTP, WebSocket)
 - Clausula Petrea Cloudflare atualizada (Artigo 3)
 - Time-machine: /mnt/storage/backups/relay-maintenance/timemachine_20260331_060051_pre-feed-engine/
+
+---
+
+### Sessao 31/Mar/2026 — Redis dedicado + Reputacao persistente (Claude Code)
+
+**Redis dedicado (relay-redis):**
+- Problema: Nexus e Feed Engine usavam Redis do LiberChat via IP Docker (172.x). IP mudava ao recriar rede → Connection Timeout
+- Solucao: Container Redis dedicado `relay-redis` (redis:7-alpine) em 127.0.0.1:6381
+- Compose: /mnt/projetos/relay-stack/docker-compose.yml
+- Volume: /mnt/storage/databases/relay-redis/data/ (clausula petrea)
+- Config: maxmemory 256mb, allkeys-lru, RDB snapshots, healthcheck Docker
+- Systemd: ExecStartPre com nc -z aguardando Redis, Requires=docker.service
+- Plano revisado pela Gemini antes da implementacao
+- Time-machine pre: /mnt/storage/backups/time-machine/timemachine_20260331_190441_pre-relay-redis/
+
+**Reputacao persistente no Redis:**
+- Problema: Reputacao de peers era 100% in-memory (Map). Restart do Nexus = reset total. Peers maliciosos perdiam punicao, bondosos perdiam premio
+- Solucao: Persistir reputacao no Redis vinculada a publicKey Nostr (nao ao clientId efemero)
+- Chave Redis: `nexus:reputation:{publicKey_hex}` (sem TTL, permanente)
+- initReputation: carrega do Redis se existir, senao inicia 70 e persiste
+- adjustReputation: salva no Redis a cada mudanca
+- cleanupPeerClassifier: persiste valor final antes de limpar memoria
+- Sem publicKey = sem persistencia (peers anonimos sempre comecam em 70)
+- CloudMor atualizado: config.js com PUBLIC_KEY, peer-protocol.js envia no PEER_REGISTER
+- Testado: restart do Nexus → "restored reputation for e9ebf4ab: 70" ✅
+
+**Arquivos modificados:**
+- src/peers/classifier.ts — reputacao persistente via Redis + publicKey
+- src/peers/manager.ts — passa publicKey no initReputation
+- src/redis/client.ts — getRedis() exportado (ja existia)
+
+**CloudMor modificados (via SSH):**
+- /mnt/projetos/nexus-p2p/src/config.js — PUBLIC_KEY adicionada
+- /mnt/projetos/nexus-p2p/src/peer-protocol.js — publicKey no PEER_REGISTER
+
+**Time-machine pos: /mnt/storage/backups/time-machine/timemachine_20260331_192002_redis-dedicado-reputacao/
 
 ---
 

@@ -508,7 +508,57 @@ Tres camadas: Seed Node (relay central) + Super Peers (clientes estaveis) + Casu
 - /mnt/projetos/nexus-p2p/src/config.js — PUBLIC_KEY adicionada
 - /mnt/projetos/nexus-p2p/src/peer-protocol.js — publicKey no PEER_REGISTER
 
-**Time-machine pos: /mnt/storage/backups/time-machine/timemachine_20260331_192002_redis-dedicado-reputacao/
+**Time-machine pos:** /mnt/storage/backups/time-machine/timemachine_20260331_192002_redis-dedicado-reputacao/
+
+---
+
+### 01/Abr/2026 — Auditoria + Bugfix Critico P2P (Claude Code)
+**Commits:** `8feb732` (nexus-relay), `70963e9` (libermedia-v2)
+**Revisado por:** Claude (auditoria) + Gemini Flash (plano)
+
+**Auditoria completa identificou 32 issues (5 criticos, 7 altos, 10 medios, 10 baixos).**
+**Causa raiz do P2P zero trafego:** SimplePeer criado SEM STUN/TURN servers = WebRTC nao atravessa NAT.
+
+**Correcoes implementadas (7 fases):**
+
+1. **CORS em todas respostas HTTP** (server.ts)
+   - Handler OPTIONS retornando 204 com headers CORS
+   - Access-Control-Allow-Origin em static files, 404, 502
+   - nostr.watch agora consegue medir RTT
+
+2. **STUN/TURN no SimplePeer** (client.html + nexus-p2p.js)
+   - Google STUN (stun.l.google.com:19302, stun1.l.google.com:19302)
+   - Cloudflare STUN (stun.cloudflare.com:3478)
+   - WebRTC agora pode atravessar NAT
+
+3. **Race condition fix** (client.html + nexus-p2p.js)
+   - Signal aplicado direto sem setTimeout(10ms)
+   - SimplePeer faz queue de signals internamente
+
+4. **Memory leak fix** (nexus-p2p.js)
+   - removeEventListener antes de adicionar novo handler a cada reconexao
+
+5. **Broadcast race condition guard** (broadcast.ts)
+   - try-catch no send para peers que desconectam mid-broadcast
+
+6. **Path traversal protection** (server.ts)
+   - Valida que filePath esta dentro de publicDir
+
+7. **JSON.parse seguro** (client.html)
+   - try-catch no onmessage do WebSocket
+
+**CloudMor verificado:** Rodando 24/7, 311 eventos em cache, status super_peer.
+**SSH config adicionado:** Host cloudmor no ~/.ssh/config (user cloudadmin via Tailscale)
+
+**Time-machine:** `/mnt/storage/backups/nexus-relay/timemachine_20260401_111059_pre-bugfix-p2p`
+
+**Pendente proxima sessao:**
+- Testar WebRTC em 2 browsers (validar que STUN funciona)
+- Rate limiting no PEER_HEARTBEAT/PEER_STATS
+- Limpeza de peers fantasma no Redis
+- Script `test` no package.json
+- Redesign client.html para UX final
+- SimplePeer CDN fallback (bundle local)
 
 ---
 

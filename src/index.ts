@@ -3,6 +3,7 @@ import { logger } from './utils/logger';
 import { connectRedis, disconnectRedis } from './redis/client';
 import { startServer } from './server';
 import { startBroadcastListener, stopBroadcastListener } from './broadcast';
+import { pruneOldEvents } from './peers/cache-tracker';
 
 const log = logger('nexus');
 
@@ -19,9 +20,13 @@ async function main(): Promise<void> {
   // 3. Start broadcast listener (subscribe to strfry for new events)
   startBroadcastListener();
 
+  // 4. Prune old events from cache tracker every 10 minutes
+  const pruneTimer = setInterval(pruneOldEvents, 10 * 60 * 1000);
+
   // Graceful shutdown
   const shutdown = async () => {
     log.info('shutting down...');
+    clearInterval(pruneTimer);
     stopBroadcastListener();
     wss.close();
     await disconnectRedis();

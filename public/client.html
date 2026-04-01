@@ -356,8 +356,9 @@
     function createP2PConnection(targetPeerId, requestedEventId, isInitiator) {
       const ICE_SERVERS = [
         { urls: 'stun:stun.l.google.com:19302' },
-        { urls: 'stun:stun1.l.google.com:19302' },
-        { urls: 'stun:stun.cloudflare.com:3478' }
+        { urls: 'stun:stun.cloudflare.com:3478' },
+        { urls: 'turn:5.29.139.232:3478', username: 'nexus', credential: '2b83b515ba3bd8422ec3b12fe14e3c90' },
+        { urls: 'turns:5.29.139.232:5349', username: 'nexus', credential: '2b83b515ba3bd8422ec3b12fe14e3c90' }
       ];
       const peer = new SimplePeer({ initiator: isInitiator, trickle: true, config: { iceServers: ICE_SERVERS } });
       p2pPeers.set(targetPeerId, peer);

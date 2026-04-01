@@ -99,6 +99,14 @@ async function onHeartbeat(client: NexusClient): Promise<void> {
 // Check and apply peer classification on every heartbeat
 async function checkClassification(client: NexusClient): Promise<void> {
   try {
+    // Passive reputation decay: peers above baseline decay slowly
+    // unless actively serving events via P2P
+    const rep = getReputation(client.id);
+    const served = getEventsServed(client.id);
+    if (rep > 70 && served === 0) {
+      adjustReputation(client.id, -0.5); // decay toward baseline
+    }
+
     const result = await classifyPeer(client.id);
 
     if (result.shouldPromote) {
@@ -124,17 +132,20 @@ async function checkClassification(client: NexusClient): Promise<void> {
 function onSignal(client: NexusClient, args: unknown[]): void {
   const payload = args[0] as { target_peer: string; signal_data: unknown } | undefined;
   if (!payload?.target_peer || !payload?.signal_data) {
+    log.warn(`signal rejected: missing target_peer or signal_data from ${client.id}`);
     send(client, [MSG_PEER_ERROR, { message: 'PEER_SIGNAL requires target_peer and signal_data' }]);
     return;
   }
 
   if (!isPeerRegistered(client.id)) {
+    log.warn(`signal rejected: ${client.id} not registered`);
     send(client, [MSG_PEER_ERROR, { message: 'not_registered', action: 're-register' }]);
     return;
   }
 
   const target = getClient(payload.target_peer);
   if (!target) {
+    log.warn(`signal rejected: target ${payload.target_peer} not found (stale peer ID?)`);
     send(client, [MSG_PEER_ERROR, { message: 'target_peer not found' }]);
     return;
   }
@@ -145,7 +156,7 @@ function onSignal(client: NexusClient, args: unknown[]): void {
     signal_data: payload.signal_data,
   }]);
 
-  log.debug(`signal relayed ${client.id} → ${payload.target_peer}`);
+  log.info(`signal relayed ${client.id} → ${payload.target_peer}`);
 }
 
 // Client requests events - Nexus checks which peers have them and offers P2P
@@ -181,24 +192,48 @@ async function onRequest(client: NexusClient, args: unknown[]): Promise<void> {
 }
 
 // Client announces which events it has cached
+// Supports v1 (event_ids only) and v2 (events with metadata)
 async function onCacheHave(client: NexusClient, args: unknown[]): Promise<void> {
-  const payload = args[0] as { event_ids: string[] } | undefined;
-  if (!payload?.event_ids || !Array.isArray(payload.event_ids)) {
-    send(client, [MSG_PEER_ERROR, { message: 'PEER_CACHE_HAVE requires event_ids array' }]);
-    return;
-  }
+  const payload = args[0] as {
+    event_ids?: string[];
+    events?: Array<{ id: string; pubkey: string; kind: number; created_at: number }>;
+  } | undefined;
 
   if (!isPeerRegistered(client.id)) {
     send(client, [MSG_PEER_ERROR, { message: 'not_registered', action: 're-register' }]);
     return;
   }
 
-  for (const eventId of payload.event_ids) {
-    addEventToPeer(client.id, eventId);
+  // v2 format: events with metadata
+  if (payload?.events && Array.isArray(payload.events)) {
+    for (const evt of payload.events) {
+      if (evt.id && evt.pubkey && evt.kind !== undefined && evt.created_at) {
+        addEventToPeer(client.id, evt.id, {
+          id: evt.id,
+          pubkey: evt.pubkey,
+          kind: evt.kind,
+          created_at: evt.created_at,
+        });
+      }
+    }
+    log.debug(`cache_have v2 from ${client.id}: ${payload.events.length} events with metadata`);
+    return;
   }
 
-  log.debug(`cache_have from ${client.id}: ${payload.event_ids.length} events`);
+  // v1 format: event_ids only (retrocompat)
+  if (payload?.event_ids && Array.isArray(payload.event_ids)) {
+    for (const eventId of payload.event_ids) {
+      addEventToPeer(client.id, eventId);
+    }
+    log.debug(`cache_have v1 from ${client.id}: ${payload.event_ids.length} events`);
+    return;
+  }
+
+  send(client, [MSG_PEER_ERROR, { message: 'PEER_CACHE_HAVE requires event_ids or events array' }]);
 }
+
+// Track last reported events_served per peer for delta calculation
+const lastReportedServed = new Map<string, number>();
 
 // Client reports sharing statistics
 async function onStats(client: NexusClient, args: unknown[]): Promise<void> {
@@ -218,14 +253,21 @@ async function onStats(client: NexusClient, args: unknown[]): Promise<void> {
     return;
   }
 
-  // Record events served for reputation
+  // Calculate delta from last report (cumulative stats from peer)
   const served = payload.events_served ?? 0;
-  for (let i = 0; i < served; i++) {
-    recordEventServed(client.id);
+  const lastServed = lastReportedServed.get(client.id) ?? 0;
+  const delta = served - lastServed;
+  lastReportedServed.set(client.id, served);
+
+  // Only reward real P2P contribution
+  if (delta > 0 && delta < 100) { // sanity check
+    for (let i = 0; i < delta; i++) {
+      recordEventServed(client.id);
+    }
+    adjustReputation(client.id, Math.min(delta, 5));
   }
 
-  // Boost reputation for reporting stats (cooperation signal)
-  adjustReputation(client.id, 1);
+  // NO free reputation boost for just reporting stats
 
   send(client, [MSG_PEER_STATS_OK, {
     peer_id: client.id,
@@ -233,5 +275,9 @@ async function onStats(client: NexusClient, args: unknown[]): Promise<void> {
     total_events_served: getEventsServed(client.id),
   }]);
 
-  log.debug(`stats from ${client.id}: served=${served} bytes=${payload.bytes_transferred ?? 0}`);
+  log.debug(`stats from ${client.id}: served=${served} delta=${delta} bytes=${payload.bytes_transferred ?? 0}`);
+}
+
+export function cleanupPeerStats(peerId: string): void {
+  lastReportedServed.delete(peerId);
 }

@@ -2,7 +2,7 @@ import { NexusClient } from './server';
 import { handleSignaling, send } from './signaling/handler';
 import { proxyToStrfry } from './proxy';
 import { isPeerRegistered } from './peers/manager';
-import { getPeersWithEvent } from './peers/cache-tracker';
+import { findPeersForFilter, NostrFilter } from './peers/cache-tracker';
 import { MSG_PEER_OFFER } from './signaling/messages';
 import { detectFeedFilter, serveFeed } from './feed-proxy';
 import { logger } from './utils/logger';
@@ -46,7 +46,7 @@ export function route(client: NexusClient, msg: unknown[]): void {
 /**
  * Smart REQ routing for registered peers:
  * Always proxy to strfry (guaranteed response), but also check if
- * Super Peers have cached events matching this subscription.
+ * peers have cached events matching this subscription.
  * If yes, send PEER_OFFER so client can also fetch via P2P.
  *
  * This is additive - P2P supplements strfry, doesn't replace it.
@@ -56,32 +56,31 @@ function smartReq(client: NexusClient, msg: unknown[]): void {
   // Always proxy to strfry first (guaranteed results)
   proxyToStrfry(client, msg);
 
-  // Check if we have any cached events that match
-  // For now, we check if the REQ has specific IDs filter
   const subId = msg[1] as string;
-  const filters = msg.slice(2) as Record<string, unknown>[];
+  const filters = msg.slice(2) as NostrFilter[];
+
+  const allOffers: Record<string, string[]> = {};
+  let totalOffers = 0;
 
   for (const filter of filters) {
-    // If filter has specific event IDs, check P2P cache
-    const ids = filter.ids as string[] | undefined;
-    if (ids && Array.isArray(ids) && ids.length > 0) {
-      const offers: Record<string, string[]> = {};
+    if (totalOffers >= 20) break;
 
-      for (const eventId of ids) {
-        const peers = getPeersWithEvent(eventId).filter(pid => pid !== client.id);
-        if (peers.length > 0) {
-          offers[eventId] = peers;
-        }
-      }
+    const matches = findPeersForFilter(filter, client.id);
 
-      if (Object.keys(offers).length > 0) {
-        send(client, [MSG_PEER_OFFER, {
-          subscription: subId,
-          offers,
-          source: 'smart_routing',
-        }]);
-        log.debug(`smart_req: ${client.id} sub=${subId} → ${Object.keys(offers).length} events available via P2P`);
-      }
+    for (const [eventId, peers] of matches) {
+      if (totalOffers >= 20) break;
+      if (allOffers[eventId]) continue; // already offered
+      allOffers[eventId] = peers.slice(0, 3); // max 3 peers per event
+      totalOffers++;
     }
+  }
+
+  if (totalOffers > 0) {
+    send(client, [MSG_PEER_OFFER, {
+      subscription: subId,
+      offers: allOffers,
+      source: 'smart_routing',
+    }]);
+    log.info(`smart_req: ${client.id} sub=${subId} → ${totalOffers} events available via P2P`);
   }
 }

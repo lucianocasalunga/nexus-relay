@@ -52,6 +52,9 @@ export async function getMetrics(): Promise<Record<string, unknown>> {
     cache: {
       peers_with_cache: cacheStats.peers,
       unique_events_cached: cacheStats.events,
+      meta_indexed: cacheStats.metaIndexed,
+      unique_authors: cacheStats.authors,
+      unique_kinds: cacheStats.kinds,
     },
     connections: {
       active_super_peers: connStats.superPeers,

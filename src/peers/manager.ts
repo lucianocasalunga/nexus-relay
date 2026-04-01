@@ -5,6 +5,7 @@ import { initReputation, cleanupPeerClassifier } from './classifier';
 import { cleanupPeerConnections, handleSuperPeerDisconnect } from './connections';
 import { getClient } from '../server';
 import { MSG_PEER_RECONNECT } from '../signaling/messages';
+import { cleanupPeerStats } from '../signaling/handler';
 import { logger } from '../utils/logger';
 import { PeerCapabilities } from './types';
 
@@ -67,6 +68,7 @@ export async function handleDisconnect(clientId: string): Promise<void> {
   removePeerFromCache(clientId);
   cleanupPeerClassifier(clientId);
   cleanupPeerConnections(clientId);
+  cleanupPeerStats(clientId);
   registeredPeers.delete(clientId);
   log.info(`unregistered peer ${clientId}`);
 }

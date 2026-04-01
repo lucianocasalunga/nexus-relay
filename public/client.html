@@ -203,7 +203,9 @@
         updateBadges();
       };
 
-      ws.onmessage = (e) => handleMessage(JSON.parse(e.data));
+      ws.onmessage = (e) => {
+        try { handleMessage(JSON.parse(e.data)); } catch (err) { log('Erro ao parsear mensagem: ' + err.message, 'err'); }
+      };
 
       ws.onclose = () => {
         log('WebSocket desconectado', 'err');
@@ -341,22 +343,23 @@
     function handleSignalRelay(payload) {
       const { from_peer, signal_data } = payload;
 
-      if (p2pPeers.has(from_peer)) {
-        p2pPeers.get(from_peer).signal(signal_data);
-      } else {
-        // Create responder connection
+      let peer = p2pPeers.get(from_peer);
+      if (!peer) {
+        // Create responder — SimplePeer queues signals internally
         createP2PConnection(from_peer, null, false);
-        // Need to wait for next tick for peer to be created
-        setTimeout(() => {
-          const peer = p2pPeers.get(from_peer);
-          if (peer) peer.signal(signal_data);
-        }, 10);
+        peer = p2pPeers.get(from_peer);
       }
+      if (peer) peer.signal(signal_data);
     }
 
     // --- P2P: Create WebRTC connection ---
     function createP2PConnection(targetPeerId, requestedEventId, isInitiator) {
-      const peer = new SimplePeer({ initiator: isInitiator, trickle: true });
+      const ICE_SERVERS = [
+        { urls: 'stun:stun.l.google.com:19302' },
+        { urls: 'stun:stun1.l.google.com:19302' },
+        { urls: 'stun:stun.cloudflare.com:3478' }
+      ];
+      const peer = new SimplePeer({ initiator: isInitiator, trickle: true, config: { iceServers: ICE_SERVERS } });
       p2pPeers.set(targetPeerId, peer);
 
       peer.on('signal', (data) => {

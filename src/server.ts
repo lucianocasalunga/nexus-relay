@@ -55,13 +55,28 @@ const NIP11_INFO = JSON.stringify({
   },
 });
 
+const CORS_HEADERS: Record<string, string> = {
+  'Access-Control-Allow-Origin': '*',
+  'Access-Control-Allow-Methods': 'GET, POST, OPTIONS',
+  'Access-Control-Allow-Headers': 'Content-Type, Accept, Authorization',
+};
+
+const publicDir = resolve(__dirname, '../public');
+
 async function handleHttp(req: IncomingMessage, res: ServerResponse): Promise<void> {
+  // CORS preflight
+  if (req.method === 'OPTIONS') {
+    res.writeHead(204, CORS_HEADERS);
+    res.end();
+    return;
+  }
+
   // NIP-11: return relay info when Accept header is nostr+json
   const accept = req.headers['accept'] || '';
   if (accept.includes('application/nostr+json') || accept.includes('nostr+json')) {
     res.writeHead(200, {
       'Content-Type': 'application/nostr+json',
-      'Access-Control-Allow-Origin': '*',
+      ...CORS_HEADERS,
     });
     res.end(NIP11_INFO);
     return;
@@ -75,11 +90,11 @@ async function handleHttp(req: IncomingMessage, res: ServerResponse): Promise<vo
       const feedRes = await fetchFromFeedEngine(url);
       res.writeHead(200, {
         'Content-Type': 'application/json',
-        'Access-Control-Allow-Origin': '*',
+        ...CORS_HEADERS,
       });
       res.end(feedRes);
     } catch (err) {
-      res.writeHead(502);
+      res.writeHead(502, CORS_HEADERS);
       res.end(JSON.stringify({ error: 'feed_engine_unavailable' }));
     }
     return;
@@ -91,26 +106,32 @@ async function handleHttp(req: IncomingMessage, res: ServerResponse): Promise<vo
       const metrics = await getMetrics();
       res.writeHead(200, {
         'Content-Type': 'application/json',
-        'Access-Control-Allow-Origin': '*',
+        ...CORS_HEADERS,
       });
       res.end(JSON.stringify(metrics, null, 2));
     } catch (err) {
-      res.writeHead(500);
+      res.writeHead(500, CORS_HEADERS);
       res.end('Internal error');
     }
     return;
   }
 
-  // Static files
-  const filePath = resolve(__dirname, '../public', (url === '/' ? 'test.html' : url).replace(/^\//, ''));
+  // Static files (with path traversal protection)
+  const filePath = resolve(publicDir, (url === '/' ? 'test.html' : url).replace(/^\//, ''));
+  if (!filePath.startsWith(publicDir)) {
+    res.writeHead(403, CORS_HEADERS);
+    res.end('Forbidden');
+    return;
+  }
+
   const ext = filePath.substring(filePath.lastIndexOf('.'));
 
   try {
     const content = await readFile(filePath);
-    res.writeHead(200, { 'Content-Type': MIME[ext] || 'text/plain' });
+    res.writeHead(200, { 'Content-Type': MIME[ext] || 'text/plain', ...CORS_HEADERS });
     res.end(content);
   } catch {
-    res.writeHead(404);
+    res.writeHead(404, CORS_HEADERS);
     res.end('Not found');
   }
 }

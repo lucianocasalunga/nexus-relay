@@ -2,6 +2,7 @@ import WebSocket from 'ws';
 import { strfryWsUrl } from './utils/config';
 import { getClient } from './server';
 import { isPeerRegistered, getRegisteredPeerIds } from './peers/manager';
+import { addEventToPeer } from './peers/cache-tracker';
 import { MSG_PEER_EVENT_NEW } from './signaling/messages';
 import { logger } from './utils/logger';
 
@@ -61,17 +62,29 @@ function scheduleReconnect(): void {
   }, 5000);
 }
 
-function broadcastToPeers(event: { id: string; kind: number; content: string }): void {
+function broadcastToPeers(event: { id: string; pubkey: string; kind: number; created_at: number; content: string }): void {
   // Use in-memory registered peers set (always current, no stale Redis IDs)
   const peerIds = getRegisteredPeerIds();
   if (peerIds.length === 0) return;
 
+  const meta = {
+    id: event.id,
+    pubkey: event.pubkey,
+    kind: event.kind,
+    created_at: event.created_at,
+  };
+
   let sent = 0;
   for (const peerId of peerIds) {
-    const client = getClient(peerId);
-    if (client && client.ws.readyState === 1) {
-      client.ws.send(JSON.stringify([MSG_PEER_EVENT_NEW, { event }]));
-      sent++;
+    try {
+      const client = getClient(peerId);
+      if (client && client.ws.readyState === 1) {
+        client.ws.send(JSON.stringify([MSG_PEER_EVENT_NEW, { event }]));
+        addEventToPeer(peerId, event.id, meta);
+        sent++;
+      }
+    } catch {
+      // Peer disconnected between check and send — safe to ignore
     }
   }
 

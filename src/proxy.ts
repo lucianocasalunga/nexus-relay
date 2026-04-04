@@ -96,6 +96,12 @@ function _proxyRaw(client: NexusClient, msg: unknown[]): void {
     return;
   }
 
+  // Fechar upstream morto antes de criar novo (previne leak)
+  if (upstream) {
+    try { upstream.close(); } catch {}
+    upstreams.delete(client.id);
+  }
+
   // Create new upstream connection
   const url = strfryWsUrl();
   upstream = new WebSocket(url, { headers: { 'X-Nexus-Client': client.id } });

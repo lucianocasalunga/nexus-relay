@@ -63,6 +63,38 @@ const CORS_HEADERS: Record<string, string> = {
 
 const publicDir = resolve(__dirname, '../public');
 
+// Cloudflare Calls TURN credentials
+const CF_TURN_KEY_ID = '5bb3412575ca1c5f883d21a146727190';
+const CF_TURN_TOKEN = '22325fbf2b8f2a93f30652d3501773f394ee59c4d505601e26cbd5efda981c69';
+const CF_TURN_URL = `https://rtc.live.cloudflare.com/v1/turn/keys/${CF_TURN_KEY_ID}/credentials/generate-ice-servers`;
+
+let turnCache: { iceServers: any[]; generatedAt: number } | null = null;
+
+async function generateTurnCredentials(): Promise<{ iceServers: any[] }> {
+  const now = Date.now();
+  if (turnCache && (now - turnCache.generatedAt) < 12 * 3600 * 1000) {
+    return { iceServers: turnCache.iceServers };
+  }
+
+  try {
+    const res = await fetch(CF_TURN_URL, {
+      method: 'POST',
+      headers: {
+        'Authorization': `Bearer ${CF_TURN_TOKEN}`,
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({ ttl: 86400 }),
+    });
+    const data = await res.json() as { iceServers: any[] };
+    turnCache = { iceServers: data.iceServers, generatedAt: now };
+    log.info(`Cloudflare TURN credentials refreshed (${data.iceServers.length} servers)`);
+    return { iceServers: data.iceServers };
+  } catch (err) {
+    log.error('Failed to fetch Cloudflare TURN credentials, using STUN fallback');
+    return { iceServers: [{ urls: 'stun:stun.cloudflare.com:3478' }, { urls: 'stun:stun.l.google.com:19302' }] };
+  }
+}
+
 async function handleHttp(req: IncomingMessage, res: ServerResponse): Promise<void> {
   // CORS preflight
   if (req.method === 'OPTIONS') {
@@ -83,6 +115,23 @@ async function handleHttp(req: IncomingMessage, res: ServerResponse): Promise<vo
   }
 
   const url = req.url || '/';
+
+  // TURN credentials endpoint
+  if (url === '/turn-credentials') {
+    try {
+      const creds = await generateTurnCredentials();
+      res.writeHead(200, {
+        'Content-Type': 'application/json',
+        'Cache-Control': 'max-age=3600',
+        ...CORS_HEADERS,
+      });
+      res.end(JSON.stringify(creds));
+    } catch {
+      res.writeHead(500, CORS_HEADERS);
+      res.end(JSON.stringify({ error: 'turn_unavailable' }));
+    }
+    return;
+  }
 
   // Feed Engine proxy endpoints
   if (url.startsWith('/feed/')) {
@@ -190,6 +239,8 @@ export function startServer(): WebSocketServer {
 
     ws.on('error', (err) => {
       clearInterval(pingInterval);
+      clients.delete(id);
+      handleDisconnect(id).catch(() => {});
       log.error(`ws error ${id}`, err.message);
     });
   });

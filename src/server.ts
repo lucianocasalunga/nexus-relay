@@ -108,6 +108,8 @@ async function handleHttp(req: IncomingMessage, res: ServerResponse): Promise<vo
   if (accept.includes('application/nostr+json') || accept.includes('nostr+json')) {
     res.writeHead(200, {
       'Content-Type': 'application/nostr+json',
+      'Cache-Control': 'public, max-age=300, s-maxage=300',
+      'CDN-Cache-Control': 'public, max-age=300',
       ...CORS_HEADERS,
     });
     res.end(NIP11_INFO);

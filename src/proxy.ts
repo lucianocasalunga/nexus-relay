@@ -3,6 +3,7 @@ import { NexusClient } from './server';
 import { strfryWsUrl } from './utils/config';
 import { logger } from './utils/logger';
 import { cacheProfile, getCachedProfiles, profileToEvent } from './redis/profile-cache';
+import { incCounter } from './metrics';
 
 const log = logger('proxy');
 
@@ -114,11 +115,14 @@ function _proxyRaw(client: NexusClient, msg: unknown[]): void {
   upstream.on('message', (data: Buffer) => {
     const raw = data.toString();
 
-    // Interceptar kind:0 para cachear no Redis
+    // Contar eventos e cachear perfis
     try {
       const parsed = JSON.parse(raw);
-      if (parsed[0] === 'EVENT' && parsed[2]?.kind === 0) {
-        cacheProfile(parsed[2]).catch(() => {});
+      if (parsed[0] === 'EVENT') {
+        incCounter('eventsViaRelay');
+        if (parsed[2]?.kind === 0) {
+          cacheProfile(parsed[2]).catch(() => {});
+        }
       }
     } catch {
       // Não é JSON válido, ignorar

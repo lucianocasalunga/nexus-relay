@@ -1,5 +1,5 @@
-import { getRegisteredPeerCount } from './peers/manager';
-import { getSet } from './redis/client';
+import { getRegisteredPeerCount, getRegisteredPeerIds } from './peers/manager';
+import { getPeer } from './redis/client';
 import { getCacheStats } from './peers/cache-tracker';
 import { getConnectionStats } from './peers/connections';
 import { getClientCount } from './server';
@@ -26,8 +26,16 @@ export function getCounters(): typeof counters {
 }
 
 export async function getMetrics(): Promise<Record<string, unknown>> {
-  const superPeers = await getSet('peers:super');
-  const casualPeers = await getSet('peers:casual');
+  // Count super/casual from actual registered peers (not stale Redis sets)
+  const peerIds = getRegisteredPeerIds();
+  let superCount = 0;
+  let casualCount = 0;
+  for (const id of peerIds) {
+    const peer = await getPeer(id);
+    if (peer?.status === 'super') superCount++;
+    else casualCount++;
+  }
+
   const cacheStats = getCacheStats();
   const connStats = getConnectionStats();
 
@@ -40,8 +48,8 @@ export async function getMetrics(): Promise<Record<string, unknown>> {
     peers: {
       websocket_clients: getClientCount(),
       registered_peers: getRegisteredPeerCount(),
-      super_peers: superPeers.length,
-      casual_peers: casualPeers.length,
+      super_peers: superCount,
+      casual_peers: casualCount,
     },
     p2p: {
       events_via_p2p: counters.eventsViaP2P,

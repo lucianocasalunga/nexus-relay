@@ -1,4 +1,4 @@
-import { NexusClient } from './server';
+import { NexusClient, getClient } from './server';
 import { handleSignaling, send } from './signaling/handler';
 import { proxyToStrfry } from './proxy';
 import { isPeerRegistered } from './peers/manager';
@@ -6,6 +6,7 @@ import { findPeersForFilter, NostrFilter } from './peers/cache-tracker';
 import { MSG_PEER_OFFER } from './signaling/messages';
 import { detectFeedFilter, serveFeed } from './feed-proxy';
 import { logger } from './utils/logger';
+import { isBlocked } from './utils/blacklist';
 
 const log = logger('router');
 
@@ -16,6 +17,18 @@ export function route(client: NexusClient, msg: unknown[]): void {
   }
 
   const type = msg[0] as string;
+
+  // Bloquear EVENTs de pubkeys na blacklist
+  if (type === 'EVENT') {
+    const event = msg[1] as Record<string, unknown> | undefined;
+    if (event?.pubkey && isBlocked(event.pubkey as string)) {
+      log.info(`Bloqueado EVENT de ${(event.pubkey as string).substring(0, 16)}...`);
+      if (client.ws.readyState === 1) {
+        client.ws.send(JSON.stringify(['OK', (event.id as string) || '', false, 'blocked: blacklisted']));
+      }
+      return;
+    }
+  }
 
   if (typeof type === 'string' && type.startsWith('PEER_')) {
     handleSignaling(client, type, msg.slice(1));
@@ -70,7 +83,10 @@ function smartReq(client: NexusClient, msg: unknown[]): void {
     for (const [eventId, peers] of matches) {
       if (totalOffers >= 20) break;
       if (allOffers[eventId]) continue; // already offered
-      allOffers[eventId] = peers.slice(0, 3); // max 3 peers per event
+      // Só oferecer peers que ainda estão conectados agora (evita race condition)
+      const activePeers = peers.filter(pid => !!getClient(pid));
+      if (activePeers.length === 0) continue;
+      allOffers[eventId] = activePeers.slice(0, 3);
       totalOffers++;
     }
   }

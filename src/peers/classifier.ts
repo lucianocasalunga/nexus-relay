@@ -136,6 +136,26 @@ export async function demotePeer(peerId: string): Promise<void> {
   log.info(`demoted to casual: ${peerId}`);
 }
 
+export async function classifyAllPeers(): Promise<void> {
+  const { getRegisteredPeerIds } = await import('./manager');
+  const { incCounter } = await import('../metrics');
+  const peerIds = getRegisteredPeerIds();
+  if (peerIds.length === 0) return;
+
+  for (const peerId of peerIds) {
+    const result = await classifyPeer(peerId);
+    if (result.shouldPromote) {
+      await promotePeer(peerId);
+      incCounter('peersPromoted');
+      log.info(`auto-promoted ${peerId.slice(0, 8)}: ${result.reason}`);
+    } else if (result.shouldDemote) {
+      await demotePeer(peerId);
+      incCounter('peersDemoted');
+      log.info(`auto-demoted ${peerId.slice(0, 8)}: ${result.reason}`);
+    }
+  }
+}
+
 export function cleanupPeerClassifier(peerId: string): void {
   // Persist final reputation before cleanup
   const pk = peerPublicKeys.get(peerId);

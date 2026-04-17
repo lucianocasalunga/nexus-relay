@@ -1,9 +1,10 @@
 import { config } from './utils/config';
 import { logger } from './utils/logger';
-import { connectRedis, disconnectRedis } from './redis/client';
+import { connectRedis, disconnectRedis, cleanupStaleSets } from './redis/client';
 import { startServer } from './server';
 import { startBroadcastListener, stopBroadcastListener } from './broadcast';
 import { pruneOldEvents } from './peers/cache-tracker';
+import { classifyAllPeers } from './peers/classifier';
 
 const log = logger('nexus');
 
@@ -14,19 +15,26 @@ async function main(): Promise<void> {
   // 1. Connect Redis
   await connectRedis();
 
-  // 2. Start WebSocket server (HTTP + WS)
+  // 2. Cleanup stale peer sets from previous runs
+  await cleanupStaleSets();
+
+  // 3. Start WebSocket server (HTTP + WS)
   const wss = startServer();
 
-  // 3. Start broadcast listener (subscribe to strfry for new events)
+  // 4. Start broadcast listener (subscribe to strfry for new events)
   startBroadcastListener();
 
-  // 4. Prune old events from cache tracker every 10 minutes
+  // 5. Prune old events from cache tracker every 10 minutes
   const pruneTimer = setInterval(pruneOldEvents, 10 * 60 * 1000);
+
+  // 6. Classify peers every 60s (promote/demote based on criteria)
+  const classifyTimer = setInterval(classifyAllPeers, 60 * 1000);
 
   // Graceful shutdown
   const shutdown = async () => {
     log.info('shutting down...');
     clearInterval(pruneTimer);
+    clearInterval(classifyTimer);
     stopBroadcastListener();
     wss.close();
     await disconnectRedis();

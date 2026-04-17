@@ -291,6 +291,16 @@
 
         case 'PEER_ERROR':
           log(`Erro: ${payload.message}`, 'err');
+          // Se peer alvo desconectou, abortar WebRTC para parar ICE candidates
+          if (payload.message === 'target_peer not found' && payload.target_peer) {
+            const deadPeer = p2pPeers.get(payload.target_peer);
+            if (deadPeer) {
+              deadPeer.destroy();
+              p2pPeers.delete(payload.target_peer);
+              log(`WebRTC abortado - peer ${payload.target_peer.slice(0, 8)} desconectou`, 'warn');
+            }
+            pendingPeers.delete(payload.target_peer);
+          }
           break;
 
         case 'EVENT': {
@@ -325,42 +335,56 @@
     }
 
     // --- P2P: Handle PEER_OFFER ---
-    function handleOffer(payload) {
+    const pendingPeers = new Set();
+    async function handleOffer(payload) {
       const offers = payload.offers || {};
       const eventIds = Object.keys(offers);
       if (eventIds.length === 0) return;
 
       for (const eventId of eventIds) {
         const targetPeerId = offers[eventId][0];
-        if (!targetPeerId || p2pPeers.has(targetPeerId)) continue;
+        if (!targetPeerId || p2pPeers.has(targetPeerId) || pendingPeers.has(targetPeerId)) continue;
 
+        pendingPeers.add(targetPeerId);
         log(`PEER_OFFER: ${eventId.slice(0, 12)}... via ${targetPeerId.slice(0, 8)}`, 'p2p');
-        createP2PConnection(targetPeerId, eventId, true);
+        await createP2PConnection(targetPeerId, eventId, true);
+        break; // one connection at a time
       }
     }
 
     // --- P2P: Handle relayed signal ---
-    function handleSignalRelay(payload) {
+    async function handleSignalRelay(payload) {
       const { from_peer, signal_data } = payload;
 
       let peer = p2pPeers.get(from_peer);
       if (!peer) {
         // Create responder — SimplePeer queues signals internally
-        createP2PConnection(from_peer, null, false);
+        await createP2PConnection(from_peer, null, false);
         peer = p2pPeers.get(from_peer);
       }
       if (peer) peer.signal(signal_data);
     }
 
+    // --- P2P: Fetch ICE servers from Nexus ---
+    let cachedIceServers = null;
+    async function getIceServers() {
+      if (cachedIceServers) return cachedIceServers;
+      try {
+        const res = await fetch('/turn-credentials');
+        const data = await res.json();
+        cachedIceServers = data.iceServers;
+        log('ICE servers carregados: ' + cachedIceServers.length + ' servidores', 'ok');
+        return cachedIceServers;
+      } catch (e) {
+        log('Fallback: usando apenas STUN', 'warn');
+        return [{ urls: 'stun:stun.l.google.com:19302' }];
+      }
+    }
+
     // --- P2P: Create WebRTC connection ---
-    function createP2PConnection(targetPeerId, requestedEventId, isInitiator) {
-      const ICE_SERVERS = [
-        { urls: 'stun:stun.l.google.com:19302' },
-        { urls: 'stun:stun.cloudflare.com:3478' },
-        { urls: 'turn:5.29.139.232:3478', username: 'nexus', credential: '2b83b515ba3bd8422ec3b12fe14e3c90' },
-        { urls: 'turns:5.29.139.232:5349', username: 'nexus', credential: '2b83b515ba3bd8422ec3b12fe14e3c90' }
-      ];
-      const peer = new SimplePeer({ initiator: isInitiator, trickle: true, config: { iceServers: ICE_SERVERS } });
+    async function createP2PConnection(targetPeerId, requestedEventId, isInitiator) {
+      const iceServers = await getIceServers();
+      const peer = new SimplePeer({ initiator: isInitiator, trickle: true, config: { iceServers } });
       p2pPeers.set(targetPeerId, peer);
 
       peer.on('signal', (data) => {
@@ -405,11 +429,13 @@
       peer.on('error', (err) => {
         log(`P2P erro com ${targetPeerId.slice(0, 8)}: ${err.message}`, 'err');
         p2pPeers.delete(targetPeerId);
+        pendingPeers.delete(targetPeerId);
         updateBadges();
       });
 
       peer.on('close', () => {
         p2pPeers.delete(targetPeerId);
+        pendingPeers.delete(targetPeerId);
         updateBadges();
       });
     }

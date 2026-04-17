@@ -10,6 +10,9 @@ const log = logger('proxy');
 // One strfry connection per Nexus client
 const upstreams = new Map<string, WebSocket>();
 
+// Queue messages while upstream is CONNECTING (prevents duplicate upstreams)
+const pendingMessages = new Map<string, unknown[][]>();
+
 // Track profile-only subscriptions for cache intercept
 const profileSubs = new Map<string, { clientId: string; pubkeys: string[] }>();
 
@@ -92,8 +95,20 @@ async function serveProfilesFromCache(
 function _proxyRaw(client: NexusClient, msg: unknown[]): void {
   let upstream = upstreams.get(client.id);
 
+  // Upstream aberto — enviar direto
   if (upstream && upstream.readyState === WebSocket.OPEN) {
     upstream.send(JSON.stringify(msg));
+    return;
+  }
+
+  // Upstream conectando — enfileirar mensagem (previne duplicatas)
+  if (upstream && upstream.readyState === WebSocket.CONNECTING) {
+    let queue = pendingMessages.get(client.id);
+    if (!queue) {
+      queue = [];
+      pendingMessages.set(client.id, queue);
+    }
+    queue.push(msg);
     return;
   }
 
@@ -110,6 +125,15 @@ function _proxyRaw(client: NexusClient, msg: unknown[]): void {
   upstream.on('open', () => {
     log.debug(`upstream connected for ${client.id}`);
     upstream!.send(JSON.stringify(msg));
+
+    // Enviar mensagens enfileiradas
+    const queue = pendingMessages.get(client.id);
+    if (queue) {
+      for (const queuedMsg of queue) {
+        upstream!.send(JSON.stringify(queuedMsg));
+      }
+      pendingMessages.delete(client.id);
+    }
   });
 
   upstream.on('message', (data: Buffer) => {
@@ -136,11 +160,13 @@ function _proxyRaw(client: NexusClient, msg: unknown[]): void {
   upstream.on('close', () => {
     log.debug(`upstream closed for ${client.id}`);
     upstreams.delete(client.id);
+    pendingMessages.delete(client.id);
   });
 
   upstream.on('error', (err) => {
-    log.error(`upstream error for ${client.id}`, err.message);
+    log.warn(`upstream error for ${client.id}: ${err.message}`);
     upstreams.delete(client.id);
+    pendingMessages.delete(client.id);
   });
 
   upstreams.set(client.id, upstream);

@@ -8,6 +8,7 @@ import {
 import { isSuperPeerFull, registerConnection } from '../peers/connections';
 import { PeerCapabilities } from '../peers/types';
 import { logger } from '../utils/logger';
+import { incCounter } from '../metrics';
 import {
   MSG_PEER_REGISTER,
   MSG_PEER_HEARTBEAT,
@@ -15,6 +16,7 @@ import {
   MSG_PEER_SIGNAL,
   MSG_PEER_CACHE_HAVE,
   MSG_PEER_STATS,
+  MSG_PEER_P2P_CONNECTED,
   MSG_PEER_REGISTERED,
   MSG_PEER_HEARTBEAT_ACK,
   MSG_PEER_OFFER,
@@ -52,6 +54,9 @@ export function handleSignaling(client: NexusClient, type: string, args: unknown
       break;
     case MSG_PEER_STATS:
       onStats(client, args);
+      break;
+    case MSG_PEER_P2P_CONNECTED:
+      onP2PConnected(client, args);
       break;
     default:
       log.warn(`unknown signaling type: ${type} from ${client.id}`);
@@ -146,7 +151,7 @@ function onSignal(client: NexusClient, args: unknown[]): void {
   const target = getClient(payload.target_peer);
   if (!target) {
     log.warn(`signal rejected: target ${payload.target_peer} not found (stale peer ID?)`);
-    send(client, [MSG_PEER_ERROR, { message: 'target_peer not found' }]);
+    send(client, [MSG_PEER_ERROR, { message: 'target_peer not found', target_peer: payload.target_peer }]);
     return;
   }
 
@@ -156,6 +161,7 @@ function onSignal(client: NexusClient, args: unknown[]): void {
     signal_data: payload.signal_data,
   }]);
 
+  incCounter('signalsRelayed');
   log.info(`signal relayed ${client.id} → ${payload.target_peer}`);
 }
 
@@ -264,6 +270,8 @@ async function onStats(client: NexusClient, args: unknown[]): Promise<void> {
     for (let i = 0; i < delta; i++) {
       recordEventServed(client.id);
     }
+    incCounter('eventsViaP2P', delta);
+    incCounter('bytesP2P', payload.bytes_transferred ?? 0);
     adjustReputation(client.id, Math.min(delta, 5));
   }
 
@@ -276,6 +284,20 @@ async function onStats(client: NexusClient, args: unknown[]): Promise<void> {
   }]);
 
   log.debug(`stats from ${client.id}: served=${served} delta=${delta} bytes=${payload.bytes_transferred ?? 0}`);
+}
+
+// Peer notifies that a WebRTC connection was established
+function onP2PConnected(client: NexusClient, args: unknown[]): void {
+  const payload = args[0] as { remote_peer: string } | undefined;
+  if (!payload?.remote_peer) return;
+
+  if (!isPeerRegistered(client.id)) return;
+
+  // Register the connection (determines which peer is super based on who has the role)
+  const ok = registerConnection(client.id, payload.remote_peer);
+  if (ok) {
+    log.info(`P2P connected: ${client.id.slice(0, 8)} ↔ ${payload.remote_peer.slice(0, 8)}`);
+  }
 }
 
 export function cleanupPeerStats(peerId: string): void {

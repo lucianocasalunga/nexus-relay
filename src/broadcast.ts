@@ -5,6 +5,7 @@ import { isPeerRegistered, getRegisteredPeerIds } from './peers/manager';
 import { addEventToPeer } from './peers/cache-tracker';
 import { MSG_PEER_EVENT_NEW } from './signaling/messages';
 import { logger } from './utils/logger';
+import { isBlocked } from './utils/blacklist';
 
 const log = logger('broadcast');
 
@@ -63,6 +64,12 @@ function scheduleReconnect(): void {
 }
 
 function broadcastToPeers(event: { id: string; pubkey: string; kind: number; created_at: number; content: string }): void {
+  // Nao distribuir eventos de pubkeys bloqueadas
+  if (isBlocked(event.pubkey)) {
+    log.info(`Broadcast bloqueado: ${event.pubkey.substring(0, 16)}...`);
+    return;
+  }
+
   // Use in-memory registered peers set (always current, no stale Redis IDs)
   const peerIds = getRegisteredPeerIds();
   if (peerIds.length === 0) return;

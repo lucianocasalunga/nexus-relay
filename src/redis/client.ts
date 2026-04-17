@@ -63,6 +63,24 @@ export async function getSet(set: string): Promise<string[]> {
   return client.sMembers(`${PREFIX}${set}`);
 }
 
+export async function cleanupStaleSets(): Promise<void> {
+  const sets = ['peers:all', 'peers:super', 'peers:casual'];
+  let removed = 0;
+  for (const set of sets) {
+    const members = await client.sMembers(`${PREFIX}${set}`);
+    for (const member of members) {
+      const exists = await client.exists(`${PREFIX}peer:${member}`);
+      if (!exists) {
+        await client.sRem(`${PREFIX}${set}`, member);
+        removed++;
+      }
+    }
+  }
+  if (removed > 0) {
+    log.info(`cleanup: removed ${removed} stale entries from peer sets`);
+  }
+}
+
 export async function disconnectRedis(): Promise<void> {
   if (client) {
     await client.quit();

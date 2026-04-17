@@ -5,6 +5,7 @@ export const MSG_PEER_REQUEST = 'PEER_REQUEST';     // request events with P2P p
 export const MSG_PEER_SIGNAL = 'PEER_SIGNAL';       // relay ICE/SDP to another peer
 export const MSG_PEER_CACHE_HAVE = 'PEER_CACHE_HAVE'; // announce cached event IDs
 export const MSG_PEER_STATS = 'PEER_STATS';         // report sharing statistics
+export const MSG_PEER_P2P_CONNECTED = 'PEER_P2P_CONNECTED'; // WebRTC connection established
 
 // Nexus -> Client
 export const MSG_PEER_REGISTERED = 'PEER_REGISTERED';

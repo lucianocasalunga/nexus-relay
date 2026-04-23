@@ -5,8 +5,11 @@ import { logger } from '../utils/logger';
 const log = logger('classifier');
 
 // Criteria for Super Peer promotion
+// Threshold reduzido de 30min para 5min (20/Abr/2026):
+// Cloudflare Tunnel recicla conexões WebSocket a cada 41-63min mesmo com pings ativos.
+// Os demais critérios (reputação, bandwidth, storage, cache) garantem legimitidade.
 const SUPER_PEER_CRITERIA = {
-  minOnlineMs: 30 * 60 * 1000,   // 30 minutes
+  minOnlineMs: 5 * 60 * 1000,    // 5 minutes (era 30 min — ver nota acima)
   minBandwidth: 5,                 // 5 Mbps
   minStorage: 100,                 // 100 MB
   minReputation: 50,               // 0-100 scale

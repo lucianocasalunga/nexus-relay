@@ -812,3 +812,20 @@ involuntariamente durante a migração do relay para o VPS Hetzner.
 **Implicação para o NIP-95:**
 Um Super Peer estável (servidor 24/7) sobrevive a migrações de relay, reboots e quedas
 sem reconfiguração. A abstração DNS é suficiente para manter a continuidade da rede P2P.
+
+---
+
+## PROBLEMA CONHECIDO: "too many concurrent REQs" no strfry (20/Abr/2026)
+
+**Status:** Cosmético — não afeta funcionalidade. Monitorar.
+
+**Causa:** Indexers/crawlers externos conectam em pares (2 WebSockets simultâneos), enviam ~1 REQ/2s sem nunca fechar os anteriores. Após ~31 minutos acumulam 1.000 subscriptions abertas (limite do strfry: `maxSubsPerConnection = 1000`) e passam a receber erros a 1/segundo.
+
+**Impacto real:**
+- Log spam (milhares de linhas por sessão de cada indexer)
+- 1.000 subscriptions abertas por conexão = CPU extra avaliando filtros
+- Funcionalidade do relay: 100% OK (strfry rejeita corretamente os excessos)
+
+**Por que não corrigir agora:** `maxSubsPerConnection = 1000` foi definido porque LiberMedia precisava de mais que o default 200. Reduzir sem testar pode quebrar o LiberMedia.
+
+**Ação futura:** Verificar quantas subscriptions simultâneas o LiberMedia realmente usa. Se ≤100, reduzir `maxSubsPerConnection` para 50-100 (indexers acumulariam bem menos antes dos erros).

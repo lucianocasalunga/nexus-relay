@@ -38,12 +38,12 @@ const MIME: Record<string, string> = {
 // NIP-11 Relay Information Document
 const NIP11_INFO = JSON.stringify({
   name: 'Nexus Relay',
-  description: 'Hybrid P2P Nostr Relay - NIP-95',
+  description: 'LiberNet Hybrid P2P Nostr Relay - WebRTC signaling + profile cache',
   pubkey: '9b31915dd140b34774cb60c42fc0e015d800cde7f5e4f82a5f2d4e21d72803e4',
-  contact: 'admin@libernet.app',
+  contact: 'mailto:admin@libernet.app',
   icon: 'https://media.libernet.app/static/img/relay-icon.png',
-  supported_nips: [1, 2, 4, 9, 11, 12, 15, 16, 20, 22, 28, 33, 40, 95],
-  software: 'nexus-relay',
+  supported_nips: [1, 2, 4, 9, 11, 22, 28, 33, 40, 95],
+  software: 'git+https://github.com/lucianocasalunga/nexus-relay',
   version: '1.0.0',
   limitation: {
     max_message_length: 131072,
@@ -63,9 +63,9 @@ const CORS_HEADERS: Record<string, string> = {
 
 const publicDir = resolve(__dirname, '../public');
 
-// Cloudflare Calls TURN credentials
-const CF_TURN_KEY_ID = 'CF_TURN_KEY_ID_REMOVED';
-const CF_TURN_TOKEN = 'CF_TURN_TOKEN_REMOVED';
+// Cloudflare Calls TURN credentials (loaded from env)
+const CF_TURN_KEY_ID = process.env.CF_TURN_KEY_ID ?? '';
+const CF_TURN_TOKEN = process.env.CF_TURN_TOKEN ?? '';
 const CF_TURN_URL = `https://rtc.live.cloudflare.com/v1/turn/keys/${CF_TURN_KEY_ID}/credentials/generate-ice-servers`;
 
 let turnCache: { iceServers: any[]; generatedAt: number } | null = null;

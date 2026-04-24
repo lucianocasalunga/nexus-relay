@@ -4,3 +4,10 @@ ramdisk/
 .env
 .env.*
 !.env.example
+
+# Arquivos internos de planejamento
+MEMORIA*.md
+PLANO*.md
+FASE*.md
+MONETIZACAO.md
+PLANO-*.md

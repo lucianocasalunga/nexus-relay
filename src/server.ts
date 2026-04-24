@@ -39,7 +39,7 @@ const MIME: Record<string, string> = {
 const NIP11_INFO = JSON.stringify({
   name: 'Nexus Relay',
   description: 'LiberNet Hybrid P2P Nostr Relay - WebRTC signaling + profile cache',
-  pubkey: '9b31915dd140b34774cb60c42fc0e015d800cde7f5e4f82a5f2d4e21d72803e4',
+  pubkey: '7658d74cc4aef6bd6353cf6d63b171343eee752b1a16a3ea1f84e459c1faa627',
   contact: 'mailto:admin@libernet.app',
   icon: 'https://media.libernet.app/static/img/relay-icon.png',
   supported_nips: [1, 2, 4, 9, 11, 22, 28, 33, 40, 95],

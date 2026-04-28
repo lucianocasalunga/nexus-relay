@@ -5,7 +5,7 @@ import { initReputation, cleanupPeerClassifier } from './classifier';
 import { cleanupPeerConnections, handleSuperPeerDisconnect } from './connections';
 import { getClient } from '../server';
 import { MSG_PEER_RECONNECT } from '../signaling/messages';
-import { cleanupPeerStats } from '../signaling/handler';
+import { cleanupPeerStats, cleanupRateLimit } from '../signaling/handler';
 import { logger } from '../utils/logger';
 import { PeerCapabilities } from './types';
 
@@ -30,7 +30,8 @@ export async function registerPeer(
     bandwidth: String(capabilities.bandwidth ?? 0),
     storage: String(capabilities.storage ?? 0),
     publicKey: capabilities.publicKey ?? '',
-  });
+    lightningAddress: capabilities.lightningAddress ?? '',
+  } as any);
 
   await addToSet('peers:all', clientId);
   await addToSet('peers:casual', clientId);
@@ -69,6 +70,7 @@ export async function handleDisconnect(clientId: string): Promise<void> {
   cleanupPeerClassifier(clientId);
   cleanupPeerConnections(clientId);
   cleanupPeerStats(clientId);
+  cleanupRateLimit(clientId);
   registeredPeers.delete(clientId);
   log.info(`unregistered peer ${clientId}`);
 }

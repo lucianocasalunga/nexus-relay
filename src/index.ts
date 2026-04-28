@@ -5,6 +5,7 @@ import { startServer } from './server';
 import { startBroadcastListener, stopBroadcastListener } from './broadcast';
 import { pruneOldEvents } from './peers/cache-tracker';
 import { classifyAllPeers } from './peers/classifier';
+import { publishBadgeDefinition } from './badge';
 
 const log = logger('nexus');
 
@@ -23,6 +24,9 @@ async function main(): Promise<void> {
 
   // 4. Start broadcast listener (subscribe to strfry for new events)
   startBroadcastListener();
+
+  // 4b. Publish NIP-58 badge definition (idempotent — replaceable event kind 30009)
+  publishBadgeDefinition().catch(err => log.warn(`badge definition: ${err.message}`));
 
   // 5. Prune old events from cache tracker every 10 minutes
   const pruneTimer = setInterval(pruneOldEvents, 10 * 60 * 1000);

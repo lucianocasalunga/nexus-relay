@@ -7,6 +7,24 @@ import { incCounter } from './metrics';
 
 const log = logger('proxy');
 
+// Relay latency tracking (REQ sent → first EVENT received)
+const reqTimestamps = new Map<string, number>(); // `${clientId}:${subId}` → ts
+const relayLatencySamples: number[] = [];
+const RELAY_LATENCY_MAX_SAMPLES = 200;
+
+function recordRelayLatency(ms: number): void {
+  if (ms < 0 || ms > 30_000) return;
+  relayLatencySamples.push(ms);
+  if (relayLatencySamples.length > RELAY_LATENCY_MAX_SAMPLES) {
+    relayLatencySamples.shift();
+  }
+}
+
+export function getRelayAvgLatency(): number | null {
+  if (relayLatencySamples.length === 0) return null;
+  return Math.round(relayLatencySamples.reduce((a, b) => a + b, 0) / relayLatencySamples.length);
+}
+
 // One strfry connection per Nexus client
 const upstreams = new Map<string, WebSocket>();
 
@@ -97,6 +115,9 @@ function _proxyRaw(client: NexusClient, msg: unknown[]): void {
 
   // Upstream aberto — enviar direto
   if (upstream && upstream.readyState === WebSocket.OPEN) {
+    if (msg[0] === 'REQ') {
+      reqTimestamps.set(`${client.id}:${msg[1]}`, Date.now());
+    }
     upstream.send(JSON.stringify(msg));
     return;
   }
@@ -124,6 +145,9 @@ function _proxyRaw(client: NexusClient, msg: unknown[]): void {
 
   upstream.on('open', () => {
     log.debug(`upstream connected for ${client.id}`);
+    if (msg[0] === 'REQ') {
+      reqTimestamps.set(`${client.id}:${msg[1]}`, Date.now());
+    }
     upstream!.send(JSON.stringify(msg));
 
     // Enviar mensagens enfileiradas
@@ -144,6 +168,13 @@ function _proxyRaw(client: NexusClient, msg: unknown[]): void {
       const parsed = JSON.parse(raw);
       if (parsed[0] === 'EVENT') {
         incCounter('eventsViaRelay');
+        // Medir latência relay: tempo entre REQ e primeiro EVENT da sub
+        const key = `${client.id}:${parsed[1]}`;
+        const ts = reqTimestamps.get(key);
+        if (ts) {
+          recordRelayLatency(Date.now() - ts);
+          reqTimestamps.delete(key);
+        }
         if (parsed[2]?.kind === 0) {
           cacheProfile(parsed[2]).catch(() => {});
         }
@@ -177,6 +208,12 @@ export function closeUpstream(clientId: string): void {
   if (upstream) {
     upstream.close();
     upstreams.delete(clientId);
+  }
+  // Limpar timestamps de REQ pendentes para este cliente
+  for (const key of reqTimestamps.keys()) {
+    if (key.startsWith(`${clientId}:`)) {
+      reqTimestamps.delete(key);
+    }
   }
 }
 

@@ -41,12 +41,18 @@ const kindEvents = new Map<number, Set<string>>();
 
 // === Core functions ===
 
+const MAX_EVENTS_PER_PEER = 10_000;
+
 export function addEventToPeer(peerId: string, eventId: string, meta?: EventMeta): void {
   // peer -> events
   let events = peerEvents.get(peerId);
   if (!events) {
     events = new Set();
     peerEvents.set(peerId, events);
+  }
+  if (events.size >= MAX_EVENTS_PER_PEER) {
+    log.warn(`cache_have limit reached for peer ${peerId} (${MAX_EVENTS_PER_PEER}), ignoring`);
+    return;
   }
   events.add(eventId);
 

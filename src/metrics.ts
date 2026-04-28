@@ -4,6 +4,7 @@ import { getCacheStats } from './peers/cache-tracker';
 import { getConnectionStats } from './peers/connections';
 import { getClientCount } from './server';
 import { logger } from './utils/logger';
+import { getRelayAvgLatency } from './proxy';
 
 const log = logger('metrics');
 
@@ -16,6 +17,23 @@ const counters = {
   peersPromoted: 0,
   peersDemoted: 0,
 };
+
+// P2P latency tracking (offer_ts → data channel open)
+const p2pLatencySamples: number[] = [];
+const LATENCY_MAX_SAMPLES = 200;
+
+export function recordP2PLatency(ms: number): void {
+  if (ms < 0 || ms > 60_000) return; // sanity: ignore outliers > 60s
+  p2pLatencySamples.push(ms);
+  if (p2pLatencySamples.length > LATENCY_MAX_SAMPLES) {
+    p2pLatencySamples.shift();
+  }
+}
+
+export function getP2PAvgLatency(): number | null {
+  if (p2pLatencySamples.length === 0) return null;
+  return Math.round(p2pLatencySamples.reduce((a, b) => a + b, 0) / p2pLatencySamples.length);
+}
 
 export function incCounter(key: keyof typeof counters, amount = 1): void {
   counters[key] += amount;
@@ -56,6 +74,9 @@ export async function getMetrics(): Promise<Record<string, unknown>> {
       events_via_relay: counters.eventsViaRelay,
       bytes_p2p: counters.bytesP2P,
       signals_relayed: counters.signalsRelayed,
+      p2p_avg_latency_ms: getP2PAvgLatency(),
+      relay_avg_latency_ms: getRelayAvgLatency(),
+      latency_samples: p2pLatencySamples.length,
     },
     cache: {
       peers_with_cache: cacheStats.peers,

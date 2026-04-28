@@ -8,7 +8,9 @@ import {
 import { isSuperPeerFull, registerConnection } from '../peers/connections';
 import { PeerCapabilities } from '../peers/types';
 import { logger } from '../utils/logger';
-import { incCounter } from '../metrics';
+import { incCounter, recordP2PLatency } from '../metrics';
+import { isConfirmedEvent } from '../broadcast';
+import { trackVerifiedEvent, cleanupPaymentTracker } from '../payments';
 import {
   MSG_PEER_REGISTER,
   MSG_PEER_HEARTBEAT,
@@ -29,6 +31,52 @@ import {
 
 const log = logger('signaling');
 
+// === Rate limiting ===
+// Sliding window (10s) per clientId per message type
+
+interface RateWindow {
+  count: number;
+  windowStart: number;
+}
+
+const rateLimits: Map<string, Map<string, RateWindow>> = new Map();
+
+const RATE_LIMITS: Record<string, number> = {
+  [MSG_PEER_HEARTBEAT]:  3,
+  [MSG_PEER_STATS]:      10,
+  [MSG_PEER_CACHE_HAVE]: 5,
+  [MSG_PEER_SIGNAL]:     20,
+};
+
+function isRateLimited(clientId: string, type: string): boolean {
+  const max = RATE_LIMITS[type];
+  if (!max) return false;
+
+  const now = Date.now();
+  let clientWindows = rateLimits.get(clientId);
+  if (!clientWindows) {
+    clientWindows = new Map();
+    rateLimits.set(clientId, clientWindows);
+  }
+
+  let win = clientWindows.get(type);
+  if (!win || now - win.windowStart > 10_000) {
+    win = { count: 0, windowStart: now };
+    clientWindows.set(type, win);
+  }
+
+  win.count++;
+  if (win.count > max) {
+    log.warn(`rate_limit hit: ${type} from ${clientId} (${win.count}/${max} in 10s)`);
+    return true;
+  }
+  return false;
+}
+
+export function cleanupRateLimit(clientId: string): void {
+  rateLimits.delete(clientId);
+}
+
 export function send(client: NexusClient, msg: unknown[]): void {
   if (client.ws.readyState === 1) { // OPEN
     client.ws.send(JSON.stringify(msg));
@@ -36,6 +84,11 @@ export function send(client: NexusClient, msg: unknown[]): void {
 }
 
 export function handleSignaling(client: NexusClient, type: string, args: unknown[]): void {
+  if (isRateLimited(client.id, type)) {
+    send(client, [MSG_PEER_ERROR, { message: 'rate_limited', type }]);
+    return;
+  }
+
   switch (type) {
     case MSG_PEER_REGISTER:
       onRegister(client, args);
@@ -72,7 +125,29 @@ async function onRegister(client: NexusClient, args: unknown[]): Promise<void> {
 
   const caps = (args[0] ?? {}) as PeerCapabilities;
 
+  // Validate publicKey if provided: must be 64-char hex (ed25519 pubkey)
+  if (caps.publicKey) {
+    if (!/^[0-9a-f]{64}$/.test(caps.publicKey)) {
+      log.warn(`register rejected: invalid publicKey from ${client.id}`);
+      send(client, [MSG_PEER_ERROR, { message: 'invalid publicKey: must be 64-char hex' }]);
+      return;
+    }
+  }
+
+  // Validate lightningAddress if provided (basic format: user@domain)
+  if (caps.lightningAddress) {
+    if (!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(caps.lightningAddress) || caps.lightningAddress.length > 200) {
+      caps.lightningAddress = ''; // silently reject malformed, don't block registration
+    }
+  }
+
   try {
+    // Cache identity for payments
+    peerIdentity.set(client.id, {
+      pubkey: caps.publicKey || '',
+      lightningAddress: caps.lightningAddress || '',
+    });
+
     await registerPeer(client.id, client.ip, caps);
     send(client, [MSG_PEER_REGISTERED, {
       peer_id: client.id,
@@ -189,8 +264,14 @@ async function onRequest(client: NexusClient, args: unknown[]): Promise<void> {
     }
   }
 
+  const offerTs = Date.now();
+  if (Object.keys(offers).length > 0) {
+    offerTimestamps.set(client.id, offerTs);
+  }
+
   send(client, [MSG_PEER_OFFER, {
     offers,
+    offer_ts: offerTs,
     fallback: Object.keys(offers).length < payload.event_ids.length ? 'strfry' : null,
   }]);
 
@@ -238,15 +319,23 @@ async function onCacheHave(client: NexusClient, args: unknown[]): Promise<void> 
   send(client, [MSG_PEER_ERROR, { message: 'PEER_CACHE_HAVE requires event_ids or events array' }]);
 }
 
+// Track offer timestamps for P2P latency measurement (peerId → ms)
+const offerTimestamps = new Map<string, number>();
+
+// Track peer identity for payments (peerId → { pubkey, lightningAddress })
+const peerIdentity = new Map<string, { pubkey: string; lightningAddress: string }>();
+
 // Track last reported events_served per peer for delta calculation
 const lastReportedServed = new Map<string, number>();
 
 // Client reports sharing statistics
+// v2: accepts event_ids_served for server-side verification
 async function onStats(client: NexusClient, args: unknown[]): Promise<void> {
   const payload = args[0] as {
     events_served?: number;
     bytes_transferred?: number;
     peers_connected?: number;
+    event_ids_served?: string[]; // v2: list of event IDs served in this cycle
   } | undefined;
 
   if (!payload) {
@@ -259,31 +348,48 @@ async function onStats(client: NexusClient, args: unknown[]): Promise<void> {
     return;
   }
 
-  // Calculate delta from last report (cumulative stats from peer)
-  const served = payload.events_served ?? 0;
-  const lastServed = lastReportedServed.get(client.id) ?? 0;
-  const delta = served - lastServed;
-  lastReportedServed.set(client.id, served);
+  let verifiedDelta = 0;
 
-  // Only reward real P2P contribution
-  if (delta > 0 && delta < 100) { // sanity check
-    for (let i = 0; i < delta; i++) {
-      recordEventServed(client.id);
+  if (payload.event_ids_served && Array.isArray(payload.event_ids_served)) {
+    // v2: verify each reported event against server-confirmed set
+    const ids = payload.event_ids_served.slice(0, 100); // cap at 100 per cycle
+    for (const id of ids) {
+      if (typeof id === 'string' && id.length === 64 && isConfirmedEvent(id)) {
+        verifiedDelta++;
+      }
     }
-    incCounter('eventsViaP2P', delta);
-    incCounter('bytesP2P', payload.bytes_transferred ?? 0);
-    adjustReputation(client.id, Math.min(delta, 5));
+    log.debug(`stats v2 from ${client.id}: reported=${ids.length} verified=${verifiedDelta}`);
+  } else {
+    // v1 fallback: use cumulative delta with sanity check (unverified)
+    const served = payload.events_served ?? 0;
+    const lastServed = lastReportedServed.get(client.id) ?? 0;
+    const delta = served - lastServed;
+    lastReportedServed.set(client.id, served);
+    verifiedDelta = (delta > 0 && delta < 20) ? delta : 0; // tighter cap for unverified
+    log.debug(`stats v1 from ${client.id}: served=${served} delta=${delta} verified=${verifiedDelta}`);
   }
 
-  // NO free reputation boost for just reporting stats
+  if (verifiedDelta > 0) {
+    for (let i = 0; i < verifiedDelta; i++) {
+      recordEventServed(client.id);
+    }
+    incCounter('eventsViaP2P', verifiedDelta);
+    incCounter('bytesP2P', payload.bytes_transferred ?? 0);
+    adjustReputation(client.id, Math.min(verifiedDelta, 5));
+
+    // Track for Lightning payment threshold
+    const identity = peerIdentity.get(client.id);
+    if (identity?.pubkey && identity?.lightningAddress) {
+      trackVerifiedEvent(client.id, identity.pubkey, identity.lightningAddress, verifiedDelta);
+    }
+  }
 
   send(client, [MSG_PEER_STATS_OK, {
     peer_id: client.id,
     reputation: getReputation(client.id),
     total_events_served: getEventsServed(client.id),
+    verified_this_cycle: verifiedDelta,
   }]);
-
-  log.debug(`stats from ${client.id}: served=${served} delta=${delta} bytes=${payload.bytes_transferred ?? 0}`);
 }
 
 // Peer notifies that a WebRTC connection was established
@@ -292,6 +398,13 @@ function onP2PConnected(client: NexusClient, args: unknown[]): void {
   if (!payload?.remote_peer) return;
 
   if (!isPeerRegistered(client.id)) return;
+
+  // Measure P2P latency from offer to data channel open
+  const ts = offerTimestamps.get(client.id);
+  if (ts) {
+    recordP2PLatency(Date.now() - ts);
+    offerTimestamps.delete(client.id);
+  }
 
   // Register the connection (determines which peer is super based on who has the role)
   const ok = registerConnection(client.id, payload.remote_peer);
@@ -302,4 +415,7 @@ function onP2PConnected(client: NexusClient, args: unknown[]): void {
 
 export function cleanupPeerStats(peerId: string): void {
   lastReportedServed.delete(peerId);
+  offerTimestamps.delete(peerId);
+  peerIdentity.delete(peerId);
+  cleanupPaymentTracker(peerId);
 }

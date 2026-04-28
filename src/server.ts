@@ -168,7 +168,7 @@ async function handleHttp(req: IncomingMessage, res: ServerResponse): Promise<vo
   }
 
   // Static files (with path traversal protection)
-  const filePath = resolve(publicDir, (url === '/' ? 'test.html' : url).replace(/^\//, ''));
+  const filePath = resolve(publicDir, (url === '/' ? 'index.html' : url).replace(/^\//, ''));
   if (!filePath.startsWith(publicDir)) {
     res.writeHead(403, CORS_HEADERS);
     res.end('Forbidden');

@@ -9,6 +9,15 @@ import { isBlocked } from './utils/blacklist';
 
 const log = logger('broadcast');
 
+// Set of event IDs the relay has confirmed receiving from strfry
+// Used for server-side stats verification — only credit peers for events we've seen
+const CONFIRMED_MAX = 50_000;
+const confirmedEventIds = new Set<string>();
+
+export function isConfirmedEvent(eventId: string): boolean {
+  return confirmedEventIds.has(eventId);
+}
+
 let strfryWs: WebSocket | null = null;
 let reconnectTimer: NodeJS.Timeout | null = null;
 
@@ -37,6 +46,12 @@ function connect(): void {
       if (Array.isArray(msg) && msg[0] === 'EVENT' && msg[1] === 'nexus-broadcast') {
         const event = msg[2];
         if (event?.id) {
+          // Register as confirmed before broadcasting
+          if (confirmedEventIds.size >= CONFIRMED_MAX) {
+            // Evict oldest entry (Set preserves insertion order)
+            confirmedEventIds.delete(confirmedEventIds.values().next().value!);
+          }
+          confirmedEventIds.add(event.id);
           broadcastToPeers(event);
         }
       }

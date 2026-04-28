@@ -1,6 +1,7 @@
 import { getPeer, addToSet, removeFromSet, getRedis } from '../redis/client';
 import { getEventsOfPeer } from './cache-tracker';
 import { logger } from '../utils/logger';
+import { publishBadge } from '../badge';
 
 const log = logger('classifier');
 
@@ -129,6 +130,14 @@ export async function promotePeer(peerId: string): Promise<void> {
   await removeFromSet('peers:casual', peerId);
   await addToSet('peers:super', peerId);
   log.info(`promoted to super: ${peerId}`);
+
+  // Publish NIP-58 "Super Peer" badge to the peer's pubkey (if known)
+  const pubkey = peerPublicKeys.get(peerId);
+  if (pubkey) {
+    publishBadge(pubkey).catch(err =>
+      log.warn(`badge publish failed for ${peerId.slice(0, 8)}: ${err.message}`)
+    );
+  }
 }
 
 export async function demotePeer(peerId: string): Promise<void> {

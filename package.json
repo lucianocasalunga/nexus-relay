@@ -6,7 +6,10 @@
   "scripts": {
     "dev": "nodemon --exec ts-node src/index.ts",
     "build": "tsc",
-    "start": "node dist/index.js"
+    "start": "node dist/index.js",
+    "test": "echo 'Use npm run test:unit ou npm run test:integration'",
+    "test:unit": "ts-node tests/test-signaling-flow.ts",
+    "test:integration": "ts-node tests/test-fase3.ts && ts-node tests/test-fase4.ts && ts-node tests/test-load.ts && ts-node tests/test-resilience.ts"
   },
   "keywords": [],
   "author": "",

@@ -11,7 +11,8 @@ export interface PeerInfo {
 }
 
 export interface PeerCapabilities {
-  bandwidth?: number;  // Mbps
-  storage?: number;    // MB available
-  publicKey?: string;  // nostr npub
+  bandwidth?: number;          // Mbps
+  storage?: number;            // MB available
+  publicKey?: string;          // nostr pubkey hex (64 chars)
+  lightningAddress?: string;   // Lightning Address for payments
 }
